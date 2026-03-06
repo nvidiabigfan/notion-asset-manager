@@ -217,6 +217,11 @@ def get_holdings() -> list:
             print(f"  [SKIP] {name} — 티커/코드 미입력")
             continue
 
+        # 한국주식은 야후 파이낸스 티커에 .KS 접미사 필요
+        # 노션에 005930 으로 입력해도 자동으로 005930.KS 로 변환
+        if category == "한국주식" and not ticker.upper().endswith(".KS"):
+            ticker = ticker + ".KS"
+
         holdings.append({
             "name":           name,
             "ticker":         ticker.strip(),
