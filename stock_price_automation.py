@@ -15,8 +15,10 @@ Phase 2: 주식 시세 자동화
 
 import os
 import json
+import time
 import urllib.request
 import urllib.parse
+import urllib.error
 from datetime import datetime, timezone, timedelta
 
 
@@ -43,14 +45,38 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
+# 노션 API rate limit 대응
+# 공식 제한: 초당 3회 평균 → 호출 간 0.4초 간격으로 여유 확보
+# 429 응답 시 Retry-After 헤더 값만큼 대기 후 1회 재시도
+NOTION_CALL_INTERVAL = 0.4  # 초
+
 
 # ── Notion API 헬퍼 ───────────────────────────────────────────────────────────
 def notion_request(method: str, path: str, body: dict = None) -> dict:
-    url = f"https://api.notion.com/v1{path}"
+    """
+    노션 API 호출 with rate limit 대응
+    - 매 호출 후 NOTION_CALL_INTERVAL 초 대기 (초당 3회 제한 준수)
+    - 429 응답 시 Retry-After 헤더 값만큼 대기 후 1회 재시도
+    """
+    url  = f"https://api.notion.com/v1{path}"
     data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(url, data=data, headers=HEADERS, method=method)
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
+    req  = urllib.request.Request(url, data=data, headers=HEADERS, method=method)
+
+    try:
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_after = int(e.headers.get("Retry-After", 60))
+            print(f"  [RATE LIMIT] {retry_after}초 대기 후 재시도...")
+            time.sleep(retry_after)
+            with urllib.request.urlopen(req) as resp:
+                result = json.loads(resp.read())
+        else:
+            raise
+
+    time.sleep(NOTION_CALL_INTERVAL)  # 다음 호출 전 인터벌 확보
+    return result
 
 
 def query_db(db_id: str, filter_body: dict = None, sorts: list = None) -> list:
