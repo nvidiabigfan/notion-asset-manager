@@ -192,54 +192,82 @@ def get_holdings() -> list:
     return holdings
 
 
+# ── 직전평가액 조회 ───────────────────────────────────────────────────────────
+def get_prev_eval_amount(asset_name: str, current_trade_date: str) -> float | None:
+    """
+    자산평가 결과 DB에서 해당 자산의 직전 레코드 평가액을 반환.
+    - 현재 거래일보다 이전인 레코드 중 가장 최근 것을 사용
+    - 첫 등록 종목(이력 없음)이면 None 반환 → 직전평가액 컬럼 비워둠
+    """
+    rows = query_db(
+        DB_EVAL_RESULT,
+        filter_body={
+            "property": "자산명", "rich_text": {"equals": asset_name}
+        },
+        sorts=[{"property": "평가일자", "direction": "descending"}],
+    )
+
+    for row in rows:
+        row_date = get_prop(row, "평가일자")  # Title 컬럼
+        if row_date and row_date < current_trade_date:
+            prev_amount = get_prop(row, "평가액")
+            if prev_amount is not None:
+                print(f"     직전평가액: {prev_amount:,.0f}원 ({row_date})")
+                return float(prev_amount)
+
+    print(f"     직전평가액: 없음 (첫 등록)")
+    return None
+
+
 # ── 자산평가 결과 DB 저장 ─────────────────────────────────────────────────────
 def upsert_eval_result(
     asset_name: str,
     category: str,
     quantity: float,
     unit_price_krw: float,
-    unit_price_usd: float | None,
-    usd_krw: float | None,
     eval_amount_krw: float,
-    today_str: str,
+    prev_eval_amount: float | None,  # 직전 주 평가액 (없으면 None)
+    trade_date: str,                 # 실제 마지막 거래일 (YYYY-MM-DD)
 ) -> None:
     """
-    자산평가 결과 DB에 오늘 날짜 기준 레코드 UPSERT
-    - 동일 (자산명 + 기준일자) 레코드가 있으면 업데이트, 없으면 신규 생성
+    자산평가 결과 DB에 거래일 기준 레코드 UPSERT
+    - 동일 (자산명 + 평가일자) 레코드가 있으면 업데이트, 없으면 신규 생성
+
+    노션 DB 컬럼 구성 (실제 확인 기준):
+      평가일자 (Title) / 자산명 (Text) / 자산분류 (Select)
+      수량 (Number) / 현재가 (Number) / 평가액 (Number)
+      직전평가액 (Number) / 변동액 (수식) / 변동율 (수식)
     """
-    # 기존 레코드 조회
+    # 기존 레코드 조회: 동일 자산명 + 평가일자 기준
     existing = query_db(
         DB_EVAL_RESULT,
         filter_body={
             "and": [
-                {"property": "자산명", "rich_text": {"equals": asset_name}},
-                {"property": "기준일자", "rich_text": {"equals": today_str}},
+                {"property": "자산명",  "rich_text": {"equals": asset_name}},
+                {"property": "평가일자", "title":     {"equals": trade_date}},
             ]
         },
     )
 
-    # 프로퍼티 구성
+    # 저장할 프로퍼티
     props = {
-        "자산명":      {"rich_text": [{"text": {"content": asset_name}}]},
-        "자산분류":    {"select": {"name": category}},   # 노션 컬럼명: 자산분류
-        "수량":        {"number": quantity},
-        "단가(원)":    {"number": round(unit_price_krw)},
-        "평가금액(원)": {"number": round(eval_amount_krw)},
-        "기준일자":    {"rich_text": [{"text": {"content": today_str}}]},
-        "기준환율":    {"number": round(usd_krw, 2) if usd_krw else None},
+        "자산명":   {"rich_text": [{"text": {"content": asset_name}}]},
+        "자산분류": {"select":    {"name": category}},
+        "수량":     {"number": quantity},
+        "현재가":   {"number": round(unit_price_krw)},
+        "평가액":   {"number": round(eval_amount_krw)},
+        "직전평가액": {
+            "number": round(prev_eval_amount) if prev_eval_amount is not None else None
+        },
     }
-    if unit_price_usd is not None:
-        props["단가(USD)"] = {"number": round(unit_price_usd, 4)}
-
-    # Title 컬럼 (조회일자) 구성
-    title_text = f"{today_str} {asset_name}"
 
     if existing:
         page_id = existing[0]["id"]
         notion_request("PATCH", f"/pages/{page_id}", {"properties": props})
         print(f"  [업데이트] {asset_name}: {eval_amount_krw:,.0f}원")
     else:
-        props["조회일자"] = {"title": [{"text": {"content": title_text}}]}
+        # 신규 생성 시 Title(평가일자) 추가
+        props["평가일자"] = {"title": [{"text": {"content": trade_date}}]}
         notion_request(
             "POST",
             "/pages",
@@ -312,16 +340,18 @@ def main():
         eval_amount = unit_price_krw * qty
         print(f"     평가금액: {eval_amount:,.0f}원 ({qty}주)")
 
+        # 직전평가액 조회 (첫 등록이면 None)
+        prev_eval = get_prev_eval_amount(name, last_trade_date)
+
         # 노션 저장 기준일 = 실제 거래일 (토요일X, 금요일 or 마지막 거래일)
         upsert_eval_result(
             asset_name=name,
             category=category,
             quantity=qty,
             unit_price_krw=unit_price_krw,
-            unit_price_usd=unit_price_usd,
-            usd_krw=rate_used,
             eval_amount_krw=eval_amount,
-            today_str=last_trade_date,   # ← 실행일 아닌 거래일 기준
+            prev_eval_amount=prev_eval,
+            trade_date=last_trade_date,
         )
 
         summary.append({
