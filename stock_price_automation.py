@@ -180,7 +180,7 @@ def get_holdings() -> list:
     rows = query_db(DB_ASSET_HOLDINGS)
     holdings = []
     for row in rows:
-        category = get_prop(row, "분류")
+        category = get_prop(row, "자산분류")   # 노션 컬럼명: 자산분류
         if category not in ("한국주식", "미국주식"):
             continue
         holdings.append({
@@ -221,7 +221,7 @@ def upsert_eval_result(
     # 프로퍼티 구성
     props = {
         "자산명":      {"rich_text": [{"text": {"content": asset_name}}]},
-        "분류":        {"select": {"name": category}},
+        "자산분류":    {"select": {"name": category}},   # 노션 컬럼명: 자산분류
         "수량":        {"number": quantity},
         "단가(원)":    {"number": round(unit_price_krw)},
         "평가금액(원)": {"number": round(eval_amount_krw)},
