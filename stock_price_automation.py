@@ -32,12 +32,8 @@ DB_EVAL_RESULT     = "31a64e13bb46802c91e1f5502631a154"  # 자산평가 결과
 
 KST = timezone(timedelta(hours=9))
 
-# 종목 매핑: 자산보유현황 DB의 자산명 → 야후 파이낸스 티커
-TICKER_MAP = {
-    "삼성전자":    "005930.KS",
-    "삼성전자 우": "005935.KS",
-    "엔비디아":    "NVDA",
-}
+# ※ 티커/코드는 자산보유현황 DB의 "티커/코드" 컬럼에서 직접 읽어옴
+#   → 종목 추가 시 코드 수정 불필요, 노션에서만 관리
 
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -197,23 +193,36 @@ def get_latest_usd_krw() -> float:
 # ── 자산보유현황 DB 조회 ──────────────────────────────────────────────────────
 def get_holdings() -> list:
     """
-    주식 보유 내역만 반환 (분류 = 한국주식 | 미국주식)
+    주식 보유 내역만 반환 (자산분류 = 한국주식 | 미국주식)
 
     이 함수가 반환하는 목록이 해당 주 토요일 평가의 전부.
     - 자산보유현황에 있는 종목만 평가 대상 → 매수 종목 자동 포함
     - 자산보유현황에서 삭제된 종목은 조회되지 않음 → 매도 종목 자동 제외
+    - 티커는 노션 "티커/코드" 컬럼에서 직접 읽음 → 코드 수정 없이 종목 추가 가능
+    - 티커/코드가 비어있는 종목은 SKIP (로그 출력)
     """
     rows = query_db(DB_ASSET_HOLDINGS)
     holdings = []
     for row in rows:
-        category = get_prop(row, "자산분류")   # 노션 컬럼명: 자산분류
+        category = get_prop(row, "자산분류")
         if category not in ("한국주식", "미국주식"):
             continue
+
+        name            = get_prop(row, "자산명")
+        ticker          = get_prop(row, "티커/코드") or ""
+        quantity        = get_prop(row, "수량") or 0
+        purchase_amount = get_prop(row, "금액")      # 매수원가
+
+        if not ticker.strip():
+            print(f"  [SKIP] {name} — 티커/코드 미입력")
+            continue
+
         holdings.append({
-            "name":     get_prop(row, "자산명"),
-            "quantity": get_prop(row, "수량") or 0,
-            "category": category,
-            "page_id":  row["id"],
+            "name":            name,
+            "ticker":          ticker.strip(),
+            "quantity":        quantity,
+            "category":        category,
+            "purchase_amount": purchase_amount,  # 매수원가 (없으면 None)
         })
     return holdings
 
@@ -252,6 +261,7 @@ def upsert_eval_result(
     quantity: float,
     unit_price_krw: float,
     eval_amount_krw: float,
+    purchase_amount: float | None,   # 매수원가 (자산보유현황의 금액 컬럼)
     prev_eval_amount: float | None,  # 직전 주 평가액 (없으면 None)
     trade_date: str,                 # 실제 마지막 거래일 (YYYY-MM-DD)
 ) -> None:
@@ -261,10 +271,9 @@ def upsert_eval_result(
 
     노션 DB 컬럼 구성 (실제 확인 기준):
       평가일자 (Title) / 자산명 (Text) / 자산분류 (Select)
-      수량 (Number) / 현재가 (Number) / 평가액 (Number)
-      직전평가액 (Number) / 변동액 (수식) / 변동율 (수식)
+      수량 (Number) / 금액 (Number, 매수원가) / 현재가 (Number)
+      평가액 (Number) / 직전평가액 (Number) / 변동액 (수식) / 변동율 (수식)
     """
-    # 기존 레코드 조회: 동일 자산명 + 평가일자 기준
     existing = query_db(
         DB_EVAL_RESULT,
         filter_body={
@@ -275,16 +284,14 @@ def upsert_eval_result(
         },
     )
 
-    # 저장할 프로퍼티
     props = {
-        "자산명":   {"rich_text": [{"text": {"content": asset_name}}]},
-        "자산분류": {"select":    {"name": category}},
-        "수량":     {"number": quantity},
-        "현재가":   {"number": round(unit_price_krw)},
-        "평가액":   {"number": round(eval_amount_krw)},
-        "직전평가액": {
-            "number": round(prev_eval_amount) if prev_eval_amount is not None else None
-        },
+        "자산명":     {"rich_text": [{"text": {"content": asset_name}}]},
+        "자산분류":   {"select":    {"name": category}},
+        "수량":       {"number": quantity},
+        "금액":       {"number": purchase_amount},           # 매수원가
+        "현재가":     {"number": round(unit_price_krw)},
+        "평가액":     {"number": round(eval_amount_krw)},
+        "직전평가액": {"number": round(prev_eval_amount) if prev_eval_amount is not None else None},
     }
 
     if existing:
@@ -292,15 +299,11 @@ def upsert_eval_result(
         notion_request("PATCH", f"/pages/{page_id}", {"properties": props})
         print(f"  [업데이트] {asset_name}: {eval_amount_krw:,.0f}원")
     else:
-        # 신규 생성 시 Title(평가일자) 추가
         props["평가일자"] = {"title": [{"text": {"content": trade_date}}]}
         notion_request(
             "POST",
             "/pages",
-            {
-                "parent": {"database_id": DB_EVAL_RESULT},
-                "properties": props,
-            },
+            {"parent": {"database_id": DB_EVAL_RESULT}, "properties": props},
         )
         print(f"  [신규생성] {asset_name}: {eval_amount_krw:,.0f}원")
 
@@ -330,14 +333,11 @@ def main():
     summary = []
 
     for holding in holdings:
-        name     = holding["name"]
-        qty      = holding["quantity"]
-        category = holding["category"]
-        ticker   = TICKER_MAP.get(name)
-
-        if not ticker:
-            print(f"  [SKIP] {name} — 티커 미정의")
-            continue
+        name            = holding["name"]
+        ticker          = holding["ticker"]          # 노션 티커/코드 컬럼에서 읽어온 값
+        qty             = holding["quantity"]
+        category        = holding["category"]
+        purchase_amount = holding["purchase_amount"] # 매수원가
 
         print(f"\n  >> {name} ({ticker})")
         try:
@@ -376,6 +376,7 @@ def main():
             quantity=qty,
             unit_price_krw=unit_price_krw,
             eval_amount_krw=eval_amount,
+            purchase_amount=purchase_amount,
             prev_eval_amount=prev_eval,
             trade_date=last_trade_date,
         )
