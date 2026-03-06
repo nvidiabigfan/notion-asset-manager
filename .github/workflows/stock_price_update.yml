@@ -1,0 +1,26 @@
+name: 주식 시세 자동 업데이트
+
+on:
+  schedule:
+    # 매주 토요일 12:00 KST = UTC 03:00
+    # 환율 업데이트(exchange_rate_update.yml)와 동일 시각 실행
+    - cron: '0 3 * * 6'
+  workflow_dispatch:   # 수동 실행 허용
+
+jobs:
+  update-stock-prices:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 주식 시세 업데이트 실행
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: python stock_price_automation.py
