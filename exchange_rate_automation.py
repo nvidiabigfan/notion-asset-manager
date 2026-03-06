@@ -1,73 +1,68 @@
-"""
-환율 자동화 스크립트 v2.0
-==========================
-- exchangerate-api.com (무료, 인증 불필요)에서 USD/KRW 환율 조회
-- 한국은행 ECOS API를 백업으로 사용
-- 노션 환율정보 DB에 저장
-- 매주 토요일 12:00 (KST) GitHub Actions에서 실행
-"""
-
-import os
-import requests
-from datetime import datetime, timedelta
-import pytz 
-
-# ============================
-# 설정
-# ============================
-BOK_API_KEY   = os.environ.get("BOK_API_KEY")
-NOTION_TOKEN  = os.environ.get("NOTION_TOKEN")
-NOTION_DB_ID  = "31a64e13bb4680a491b8c1c2ca7770bc"
-NOTION_VERSION = "2022-06-28"
-KST = pytz.timezone("Asia/Seoul")
-
-
-def log(msg):
-      now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-      print(f"[{now}] {msg}")
-
-
-# ============================
-# STEP 1. 환율 조회 (메인: exchangerate-api)
-# ============================
-def get_exchange_rate_primary():
-      """
-          exchangerate-api.com 무료 엔드포인트로 USD/KRW 조회
-              가입 불필요, 일 1500회 무료
-                  """
-      url = "https://open.er-api"""
-  환율 자동화 스크립트 v2.0
-==========================
-- exchangerate-api.com (무료, 인증 불필요)에서 USD/KRW 환율 조회
-- 한국은행 ECOS API를 백업으로 사용
-- 노션 환율정보 DB에 저장
-- 매주 토요일 12:00 (KST) GitHub Actions에서 실행
-"""
-
 import os
 import requests
 from datetime import datetime, timedelta
 import pytz
 
-# ============================
-# 설정
-# ============================
-BOK_API_KEY   = os.environ.get("BOK_API_KEY")
-NOTION_TOKEN  = os.environ.get("NOTION_TOKEN")
-NOTION_DB_ID  = "31a64e13bb4680a491b8c1c2ca7770bc"
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
+NOTION_DB_ID = "31a64e13bb4680a491b8c1c2ca7770bc"
 NOTION_VERSION = "2022-06-28"
 KST = pytz.timezone("Asia/Seoul")
 
 
 def log(msg):
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{now}] {msg}")
+    print(f"[{now}] {msg}")
 
 
-        # ============================
-        # STEP 1. 환율 조회 (메인: exchangerate-api)
-        # ============================
-        def get_exchange_rate_primary():
-    """
-    exchangerate-api.com 무료 엔드포인트로 USD/KRW 조회
-   
+def get_exchange_rate():
+    url = "https://open.er-api.com/v6/latest/USD"
+    r = requests.get(url, timeout=10)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("result") == "success":
+        rate = data["rates"]["KRW"]
+        today = datetime.now(KST).strftime("%Y-%m-%d")
+        log(f"환율 조회 성공: USD/KRW {rate:,.2f}")
+        return rate, today
+    raise Exception("환율 조회 실패")
+
+
+def save_to_notion(rate, rate_date):
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    headers = {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Content-Type": "application/json",
+        "Notion-Version": NOTION_VERSION,
+    }
+    payload = {
+        "parent": {"database_id": NOTION_DB_ID},
+        "properties": {
+            "조회일자": {"title": [{"text": {"content": today}}]},
+            "USD/KRW 환율": {"number": rate},
+            "기준일자": {"rich_text": [{"text": {"content": rate_date}}]},
+            "출처": {"rich_text": [{"text": {"content": "exchangerate-api.com"}}]},
+        },
+    }
+    r = requests.post(
+        "https://api.notion.com/v1/pages",
+        headers=headers,
+        json=payload,
+        timeout=10
+    )
+    if r.status_code == 200:
+        log(f"노션 저장 완료: {rate:,.2f}")
+    else:
+        raise Exception(f"Notion 오류 {r.status_code}: {r.text}")
+
+
+def main():
+    log("===== 환율 자동화 시작 =====")
+    if not NOTION_TOKEN:
+        raise Exception("NOTION_TOKEN 없음")
+    rate, rate_date = get_exchange_rate()
+    save_to_notion(rate, rate_date)
+    log("===== 완료 =====")
+
+
+if __name__ == "__main__":
+    main()
