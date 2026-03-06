@@ -211,18 +211,18 @@ def get_holdings() -> list:
         name            = get_prop(row, "자산명")
         ticker          = get_prop(row, "티커/코드") or ""
         quantity        = get_prop(row, "수량") or 0
-        purchase_amount = get_prop(row, "금액")      # 매수원가
+        unit_price_buy  = get_prop(row, "금액")   # 매수 당시 단가 (KRW 또는 USD)
 
         if not ticker.strip():
             print(f"  [SKIP] {name} — 티커/코드 미입력")
             continue
 
         holdings.append({
-            "name":            name,
-            "ticker":          ticker.strip(),
-            "quantity":        quantity,
-            "category":        category,
-            "purchase_amount": purchase_amount,  # 매수원가 (없으면 None)
+            "name":           name,
+            "ticker":         ticker.strip(),
+            "quantity":       quantity,
+            "category":       category,
+            "unit_price_buy": unit_price_buy,  # 매수 단가 (없으면 None)
         })
     return holdings
 
@@ -333,11 +333,11 @@ def main():
     summary = []
 
     for holding in holdings:
-        name            = holding["name"]
-        ticker          = holding["ticker"]          # 노션 티커/코드 컬럼에서 읽어온 값
-        qty             = holding["quantity"]
-        category        = holding["category"]
-        purchase_amount = holding["purchase_amount"] # 매수원가
+        name           = holding["name"]
+        ticker         = holding["ticker"]
+        qty            = holding["quantity"]
+        category       = holding["category"]
+        unit_price_buy = holding["unit_price_buy"]  # 매수 단가
 
         print(f"\n  >> {name} ({ticker})")
         try:
@@ -348,20 +348,23 @@ def main():
 
         price            = stock["price"]
         currency         = stock["currency"]
-        last_trade_date  = stock["last_trade_date"]  # 실제 거래일 (금/목/수…)
+        last_trade_date  = stock["last_trade_date"]
 
         print(f"     기준거래일: {last_trade_date}  (실행일: {run_date})")
         print(f"     종가: {price} {currency}  (시장상태: {stock['market_state']})")
 
         if currency == "KRW":
             unit_price_krw = price
-            unit_price_usd = None
-            rate_used      = None
+            # 매수원가: 단가(KRW) × 수량
+            buy_eval = (unit_price_buy * qty) if unit_price_buy is not None else None
         else:
-            unit_price_usd = price
             unit_price_krw = price * usd_krw
-            rate_used      = usd_krw
             print(f"     원화환산: {unit_price_krw:,.0f}원 (×{usd_krw:,.2f})")
+            # 매수원가: 단가(USD) × 수량 × 현재환율 (매수 당시 환율 미보존 → 현재 환율 적용)
+            buy_eval = (unit_price_buy * qty * usd_krw) if unit_price_buy is not None else None
+
+        if buy_eval is not None:
+            print(f"     매수원가: {buy_eval:,.0f}원 ({qty}주 × {unit_price_buy})")
 
         eval_amount = unit_price_krw * qty
         print(f"     평가금액: {eval_amount:,.0f}원 ({qty}주)")
@@ -369,14 +372,13 @@ def main():
         # 직전평가액 조회 (첫 등록이면 None)
         prev_eval = get_prev_eval_amount(name, last_trade_date)
 
-        # 노션 저장 기준일 = 실제 거래일 (토요일X, 금요일 or 마지막 거래일)
         upsert_eval_result(
             asset_name=name,
             category=category,
             quantity=qty,
             unit_price_krw=unit_price_krw,
             eval_amount_krw=eval_amount,
-            purchase_amount=purchase_amount,
+            purchase_amount=round(buy_eval) if buy_eval is not None else None,
             prev_eval_amount=prev_eval,
             trade_date=last_trade_date,
         )
