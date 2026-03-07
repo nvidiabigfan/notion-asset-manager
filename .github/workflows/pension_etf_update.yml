@@ -1,16 +1,16 @@
-name: Crypto Price Update
+name: Pension ETF Price Update
 
 on:
-  # Phase 6 (pension_etf_update) 완료 후 자동 트리거
+  # Phase 3 (real_estate_update) 완료 후 자동 트리거
   workflow_run:
-    workflows: ["Pension ETF Price Update"]
+    workflows: ["Real Estate Price Update"]
     types:
       - completed
 
   workflow_dispatch:
 
 jobs:
-  update-crypto:
+  update-pension:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
@@ -26,9 +26,9 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run crypto price automation
+      - name: Run pension ETF automation
         env:
           NOTION_TOKEN:      ${{ secrets.NOTION_TOKEN }}
           DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
           DB_EVAL_RESULT:    ${{ secrets.DB_EVAL_RESULT }}
-        run: python crypto_price_automation.py
+        run: python pension_etf_automation.py
