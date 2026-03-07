@@ -180,9 +180,9 @@ def aggregate_by_category(rows: list[dict]) -> dict[str, dict]:
         summary[분류]["총평가액_원"] += 평가액_원
         summary[분류]["종목수"] += 1
 
-    # 백만원 단위 변환 (소수점 1자리)
+    # 억원 단위 변환 (소수점 2자리)
     for 분류 in summary:
-        summary[분류]["총평가액"] = round(summary[분류]["총평가액_원"] / 1_000_000, 1)
+        summary[분류]["총평가액"] = round(summary[분류]["총평가액_원"] / 100_000_000, 2)
 
     return summary
 
@@ -218,23 +218,23 @@ def enrich_with_composition(summary: dict[str, dict]) -> dict[str, dict]:
 # 노션 저장
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_properties(target_date: str, 분류: str, data: dict, prev_백만: float) -> dict:
-    """노션 페이지 properties 빌드 — 금액은 백만원 단위"""
+def build_properties(target_date: str, 분류: str, data: dict, prev_억: float) -> dict:
+    """노션 페이지 properties 빌드 — 금액은 억원 단위"""
     title_key = f"{target_date}_{분류}"
     return {
         "기준일_분류": {"title": [{"text": {"content": title_key}}]},
         "평가일자":   {"date":   {"start": target_date}},
         "자산분류":   {"select": {"name": 분류}},
-        "총평가액":   {"number": data["총평가액"]},   # 이미 백만원 단위
-        "직전평가액": {"number": round(prev_백만, 1)},
+        "총평가액":   {"number": data["총평가액"]},   # 이미 억원 단위
+        "직전평가액": {"number": round(prev_억, 2)},
         "구성비":    {"number": data.get("구성비", 0.0)},
         "종목수":    {"number": data["종목수"]},
         "정렬순서":  {"number": CATEGORY_SORT.get(분류, 50)},
     }
 
 
-def upsert_row(target_date: str, 분류: str, data: dict, prev_백만: float):
-    """주간자산요약 DB upsert — 금액 단위: 백만원"""
+def upsert_row(target_date: str, 분류: str, data: dict, prev_억: float):
+    """주간자산요약 DB upsert — 금액 단위: 억원"""
     title_key = f"{target_date}_{분류}"
 
     res = requests.post(
@@ -244,7 +244,7 @@ def upsert_row(target_date: str, 분류: str, data: dict, prev_백만: float):
     )
     res.raise_for_status()
     existing   = res.json().get("results", [])
-    properties = build_properties(target_date, 분류, data, prev_백만)
+    properties = build_properties(target_date, 분류, data, prev_억)
 
     action = "UPDATE" if existing else "CREATE"
     if existing:
@@ -261,8 +261,8 @@ def upsert_row(target_date: str, 분류: str, data: dict, prev_백만: float):
         ).raise_for_status()
 
     print(f"  [{action}] {title_key:<30} "
-          f"총평가액: {data['총평가액']:>10,.1f}백만원  "
-          f"직전: {prev_백만:>10,.1f}백만원  "
+          f"총평가액: {data['총평가액']:>8,.2f}억원  "
+          f"직전: {prev_억:>8,.2f}억원  "
           f"구성비: {data.get('구성비', 0):>5.2f}%")
 
 
@@ -303,22 +303,22 @@ def main():
         upsert_row(target_date, 분류, summary[분류], prev_summary.get(분류, 0.0))
 
     # 5. 전체 합계 행 (백만원 단위)
-    total_백만  = sum(v["총평가액"] for v in summary.values())
+    total_억   = sum(v["총평가액"] for v in summary.values())
     total_종목수 = sum(v["종목수"]  for v in summary.values())
     prev_total  = sum(prev_summary.values())
     upsert_row(target_date, "전체", {
-        "총평가액": total_백만,
+        "총평가액": total_억,
         "구성비":  100.0,
         "종목수":  total_종목수,
     }, prev_total)
 
     # 6. 요약 출력
     print(f"\n{'─'*60}")
-    변동 = total_백만 - prev_total
+    변동 = total_억 - prev_total
     변동율 = (변동 / prev_total * 100) if prev_total > 0 else 0.0
-    print(f"  총 평가액:   {total_백만:>12,.1f} 백만원")
-    print(f"  직전 평가액:  {prev_total:>12,.1f} 백만원")
-    print(f"  주간 변동:   {변동:>+12,.1f} 백만원  ({변동율:+.2f}%)")
+    print(f"  총 평가액:   {total_억:>10,.2f} 억원")
+    print(f"  직전 평가액:  {prev_total:>10,.2f} 억원")
+    print(f"  주간 변동:   {변동:>+10,.2f} 억원  ({변동율:+.2f}%)")
     print(f"{'='*60}\n")
 
 
