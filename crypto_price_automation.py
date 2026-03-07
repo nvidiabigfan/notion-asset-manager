@@ -104,18 +104,19 @@ def fetch_upbit_prices(symbols: list[str]) -> dict[str, float]:
 
 
 # ── 3. 직전 평가액 조회 (run_date 미만) ──────────────────
-def fetch_prev_eval(symbol: str, run_date: str) -> float | None:
+def fetch_prev_eval(asset_name: str, run_date: str) -> float | None:
     """
-    자산평가결과 DB에서 해당 심볼의 직전 평가액 조회
+    자산평가결과 DB에서 해당 자산명의 직전 평가액 조회
     run_date 미만 데이터 중 가장 최근 값
+    자산평가결과 DB에 티커/코드 컬럼 없으므로 자산명(Title)으로 필터
     """
     url = f"https://api.notion.com/v1/databases/{DB_EVAL_RESULT}/query"
     payload = {
         "filter": {
             "and": [
-                {"property": "티커/코드",  "rich_text": {"equals": symbol}},
-                {"property": "자산분류",   "select":    {"equals": "암호화폐"}},
-                {"property": "평가일자",   "date":      {"before": run_date}},
+                {"property": "자산명",   "title":  {"equals": asset_name}},
+                {"property": "자산분류", "select": {"equals": "암호화폐"}},
+                {"property": "평가일자", "date":   {"before": run_date}},
             ]
         },
         "sorts": [{"property": "평가일자", "direction": "descending"}],
@@ -144,7 +145,7 @@ def save_eval_result(holding: dict, price: float | None, run_date: str) -> None:
     quantity = holding["quantity"]
 
     eval_amount  = round(price * quantity) if price is not None else None
-    prev_amount  = fetch_prev_eval(symbol, run_date)
+    prev_amount  = fetch_prev_eval(holding["name"], run_date)  # 자산명으로 직전값 조회
 
     properties = {
         "자산명": {
@@ -153,9 +154,7 @@ def save_eval_result(holding: dict, price: float | None, run_date: str) -> None:
         "자산분류": {
             "select": {"name": "암호화폐"}
         },
-        "티커/코드": {
-            "rich_text": [{"text": {"content": symbol}}]
-        },
+        # 티커/코드 컬럼은 자산평가결과 DB에 없으므로 저장하지 않음
         "수량": {
             "number": quantity
         },
