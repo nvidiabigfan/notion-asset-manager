@@ -368,7 +368,6 @@ def save_to_eval_result_db(asset, current_price, prev_eval):
         "현재가":     {"number": round(current_price)},
         "평가액":     {"number": round(eval_amt)},
         "직전평가액": {"number": round(prev_eval)},
-        "참고값":     {"rich_text": [{"text": {"content": f"직전 {RECENT_COUNT}개 실거래가 평균"}}]},
     }
 
     if existing:
