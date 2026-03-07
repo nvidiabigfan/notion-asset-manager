@@ -1,18 +1,30 @@
 """
-weekly_summary_automation.py  (v2 - DB 스키마 완전 반영)
+weekly_summary_automation.py  (v3 - 평가일자 Title 타입 반영)
 Phase 4 - 자산평가결과 → 분류별 집계 → 주간자산요약 DB 저장
 
-[주간자산요약 DB 실제 컬럼 구조]
-  기준일_분류   → Title  (예: "2026-03-07_한국주식")
-  평가일자      → date
-  자산분류      → select
-  총평가액      → number
-  직전평가액    → number
-  변동액        → number
-  종목수        → number
-  변동율        → number
-  구성비        → number
-  정렬순서      → number
+[자산평가결과 DB 컬럼 구조]
+  평가일자   → Title (문자열 "2026-03-07")
+  자산명     → rich_text
+  자산분류   → select
+  수량       → number
+  금액       → number
+  현재가     → number
+  평가액     → number
+  직전평가액 → number
+  변동액     → number
+  변동율     → number
+
+[주간자산요약 DB 컬럼 구조]
+  기준일_분류 → Title ("2026-03-07_한국주식")
+  평가일자    → date
+  자산분류    → select
+  총평가액    → number
+  직전평가액  → number
+  변동액      → number
+  종목수      → number
+  변동율      → number
+  구성비      → number
+  정렬순서    → number
 """
 
 import os
@@ -48,11 +60,15 @@ def get_run_date() -> str:
 
 # ── 1. 자산평가결과 DB 당일 데이터 조회 ──────────────────
 def fetch_eval_results(run_date: str) -> list[dict]:
+    """
+    평가일자(Title) = run_date 인 행 조회
+    Title 타입이므로 rich_text contains 필터 사용
+    """
     url = f"https://api.notion.com/v1/databases/{DB_EVAL_RESULT}/query"
     payload = {
         "filter": {
             "property": "평가일자",
-            "date": {"equals": run_date}
+            "rich_text": {"equals": run_date}   # Title은 rich_text 필터
         },
         "page_size": 100,
     }
@@ -75,13 +91,13 @@ def fetch_eval_results(run_date: str) -> list[dict]:
             category = props.get("자산분류", {}).get("select", {})
             category = category.get("name", "") if category else ""
 
-            amount   = props.get("평가액", {}).get("number")
-            prev     = props.get("직전평가액", {}).get("number")
+            amount = props.get("평가액", {}).get("number")
+            prev   = props.get("직전평가액", {}).get("number")
 
             if category and amount is not None:
                 rows.append({
-                    "분류":     category,
-                    "평가액":   float(amount),
+                    "분류":       category,
+                    "평가액":     float(amount),
                     "직전평가액": float(prev) if prev is not None else None,
                 })
 
@@ -94,14 +110,6 @@ def fetch_eval_results(run_date: str) -> list[dict]:
 
 # ── 2. 분류별 집계 ────────────────────────────────────────
 def aggregate(rows: list[dict]) -> dict:
-    """
-    반환:
-    {
-      "한국주식": {"평가액": 50000000, "직전평가액": 48000000, "종목수": 5},
-      ...
-      "전체":     {"평가액": 합계, "직전평가액": 합계, "종목수": 전체종목수}
-    }
-    """
     totals = defaultdict(lambda: {"평가액": 0.0, "직전평가액": 0.0, "종목수": 0, "직전있음": 0})
 
     for row in rows:
@@ -112,10 +120,10 @@ def aggregate(rows: list[dict]) -> dict:
             totals[cat]["직전평가액"] += row["직전평가액"]
             totals[cat]["직전있음"]   += 1
 
-    # 직전평가액: 일부만 있으면 None 처리 (비교 불가)
+    # 직전평가액: 분류 내 일부만 있으면 None (비교 불가)
     for cat, v in totals.items():
         if v["직전있음"] < v["종목수"]:
-            v["직전평가액"] = None   # 전체 직전값 없음
+            v["직전평가액"] = None
 
     # 전체 합산
     grand = {"평가액": 0.0, "직전평가액": 0.0, "종목수": 0, "직전있음": 0}
@@ -138,14 +146,14 @@ def aggregate(rows: list[dict]) -> dict:
     return dict(totals)
 
 
-# ── 3. 구성비 계산 ────────────────────────────────────────
+# ── 3. 구성비 계산 (반올림 오차 보정) ────────────────────
 def calc_ratio(totals: dict) -> dict[str, float]:
     grand_total = totals.get("전체", {}).get("평가액", 0)
     if grand_total == 0:
         return {k: 0.0 for k in totals}
 
-    categories = [k for k in totals if k != "전체"]
-    ratios = {}
+    categories  = [k for k in totals if k != "전체"]
+    ratios      = {}
     running_sum = 0.0
 
     for i, cat in enumerate(categories):
@@ -162,26 +170,12 @@ def calc_ratio(totals: dict) -> dict[str, float]:
 
 # ── 4. 주간자산요약 DB 저장 ───────────────────────────────
 def save_summary(category: str, data: dict, ratio: float, run_date: str) -> None:
-    """
-    주간자산요약 DB 실제 컬럼 기준으로 저장
-    - Title: 기준일_분류 (예: "2026-03-07_한국주식")
-    - 평가일자: date
-    - 자산분류: select
-    - 총평가액: number
-    - 직전평가액: number
-    - 변동액: number
-    - 종목수: number
-    - 변동율: number
-    - 구성비: number
-    - 정렬순서: number
-    """
     eval_amount = data["평가액"]
     prev_amount = data["직전평가액"]
     count       = data["종목수"]
     sort_no     = SORT_ORDER.get(category, 50)
     title_val   = f"{run_date}_{category}"
 
-    # 변동액/변동율 계산
     change_amount = None
     change_rate   = None
     if prev_amount is not None and prev_amount > 0:
@@ -214,10 +208,8 @@ def save_summary(category: str, data: dict, ratio: float, run_date: str) -> None
 
     if prev_amount is not None:
         properties["직전평가액"] = {"number": round(prev_amount)}
-
     if change_amount is not None:
         properties["변동액"] = {"number": round(change_amount)}
-
     if change_rate is not None:
         properties["변동율"] = {"number": change_rate}
 
