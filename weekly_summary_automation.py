@@ -53,17 +53,21 @@ def get_number(props: dict, key: str) -> float:
 # 노션 조회
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_today_results(target_date: str) -> list[dict]:
-    """자산평가 결과 DB → 오늘 날짜의 모든 행 조회"""
+def fetch_latest_results() -> tuple[str, list[dict]]:
+    """자산평가 결과 DB → 가장 최근 평가일자의 모든 행 조회
+    
+    반환: (최신_날짜_문자열, 행_리스트)
+    
+    ※ 자산평가 결과 DB의 '평가일자'는 Title 타입이므로 날짜 필터 불가.
+       전체 조회 후 Title에서 날짜를 파싱하여 최신 기준일 데이터만 수집.
+    """
     url = f"https://api.notion.com/v1/databases/{DB_ASSET_RESULT}/query"
-    results, cursor = [], None
+    all_rows, cursor = [], None
 
+    # 전체 조회 (페이지네이션)
     while True:
         payload: dict = {
-            "filter": {
-                "property": "평가일자",
-                "title": {"contains": target_date}
-            },
+            "sorts": [{"property": "평가일자", "direction": "descending"}],
             "page_size": 100,
         }
         if cursor:
@@ -72,13 +76,30 @@ def fetch_today_results(target_date: str) -> list[dict]:
         res = requests.post(url, headers=HEADERS, json=payload)
         res.raise_for_status()
         data = res.json()
-        results.extend(data.get("results", []))
+        all_rows.extend(data.get("results", []))
         if not data.get("has_more"):
             break
         cursor = data.get("next_cursor")
 
-    print(f"[INFO] 자산평가 결과 조회: {len(results)}건 ({target_date})")
-    return results
+    if not all_rows:
+        return "", []
+
+    # Title(평가일자)에서 날짜 파싱 → 최신 날짜 확정
+    def parse_date_from_title(row: dict) -> str:
+        title_parts = row["properties"].get("평가일자", {}).get("title", [])
+        text = title_parts[0]["plain_text"] if title_parts else ""
+        # "2026-03-07_종목명" 또는 "2026-03-07" 형태 모두 처리
+        return text[:10] if len(text) >= 10 else ""
+
+    latest_date = max((parse_date_from_title(r) for r in all_rows), default="")
+    if not latest_date:
+        return "", []
+
+    # 최신 날짜 행만 필터
+    latest_rows = [r for r in all_rows if parse_date_from_title(r) == latest_date]
+
+    print(f"[INFO] 자산평가 결과 최신 기준일: {latest_date} | 전체 {len(all_rows)}건 중 최신: {len(latest_rows)}건")
+    return latest_date, latest_rows
 
 
 def fetch_prev_weekly_summary(target_date: str) -> dict[str, float]:
@@ -225,22 +246,23 @@ def main():
         print("        노션에서 '주간자산요약' DB 생성 후 ID를 입력하세요.")
         raise SystemExit(1)
 
-    target_date = today_kst()
+    run_date = today_kst()
     print(f"\n{'='*60}")
-    print(f"  Phase 4 — 주간자산요약 집계  |  기준일: {target_date}")
+    print(f"  Phase 4 — 주간자산요약 집계  |  실행일: {run_date}")
     print(f"{'='*60}")
 
-    # 1. 오늘 자산평가 결과 전체 조회
-    rows = fetch_today_results(target_date)
+    # 1. 자산평가 결과 최신 기준일 데이터 조회 (날짜 고정 없이 최신 자동 감지)
+    target_date, rows = fetch_latest_results()
     if not rows:
-        print(f"[WARN] {target_date} 자산평가 결과가 없습니다. Phase 1~3 완료 후 재실행하세요.")
+        print(f"[WARN] 자산평가 결과가 없습니다. Phase 1~3 완료 후 재실행하세요.")
         return
+    print(f"[INFO] 집계 기준일: {target_date} (총 {len(rows)}건)")
 
     # 2. 분류별 집계 + 구성비 계산
     summary = aggregate_by_category(rows)
     summary = enrich_with_composition(summary)
 
-    # 3. 직전 주 데이터 조회
+    # 3. 직전 주 데이터 조회 (집계 기준일 기준)
     prev_summary = fetch_prev_weekly_summary(target_date)
 
     # 4. 분류별 노션 upsert (고정 순서대로)
