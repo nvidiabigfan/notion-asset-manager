@@ -38,9 +38,10 @@ SEARCH_MONTHS = 24   # 최대 소급 조회 개월수
 AREA_MARGIN   = 0.5  # 면적 허용 오차 (±㎡)
 
 # ─── 국토교통부 API endpoint ──────────────────────────────────────────────────
-MOLIT_API_URL = (
-    "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
-)
+MOLIT_API_URL = {
+    "아파트":   "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade",
+    "오피스텔": "https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade",
+}
 
 # ─── 시군구 → 법정동코드 5자리 매핑 ──────────────────────────────────────────
 LAWD_CD_MAP = {
@@ -181,12 +182,16 @@ def get_real_estate_assets():
         apt_items = props.get("아파트명", {}).get("rich_text", [])
         apt_name = apt_items[0]["text"]["content"] if apt_items else ""
 
+        # 건물유형 (Select 컬럼: 아파트 / 오피스텔)
+        bldg_type = props.get("건물유형", {}).get("select", {}).get("name", "아파트")
+
         assets.append({
             "asset_name": asset_name,
             "quantity":   num("수량"),
             "unit_price": num("금액"),
             "area":       area,
             "apt_name":   apt_name,
+            "bldg_type":  bldg_type,  # 아파트 / 오피스텔
         })
 
     print(f"  📋 부동산 자산 {len(assets)}건 조회됨")
@@ -214,8 +219,8 @@ def get_prev_eval(asset_name):
 
 
 # ─── 국토교통부 API ───────────────────────────────────────────────────────────
-def fetch_apt_trades(lawd_cd, deal_ymd):
-    """특정 지역/년월의 아파트 매매 실거래가 XML 조회"""
+def fetch_apt_trades(lawd_cd, deal_ymd, bldg_type="아파트"):
+    """특정 지역/년월의 아파트/오피스텔 매매 실거래가 XML 조회"""
     params = {
         "serviceKey": PUBLIC_DATA_API_KEY,
         "LAWD_CD":    lawd_cd,
@@ -223,8 +228,9 @@ def fetch_apt_trades(lawd_cd, deal_ymd):
         "numOfRows":  "1000",
         "pageNo":     "1",
     }
+    api_url = MOLIT_API_URL.get(bldg_type, MOLIT_API_URL["아파트"])
     try:
-        resp = requests.get(MOLIT_API_URL, params=params, timeout=15)
+        resp = requests.get(api_url, params=params, timeout=15)
         resp.raise_for_status()
     except Exception as e:
         print(f"  ⚠ API 호출 실패 ({deal_ymd}): {e}")
@@ -272,12 +278,12 @@ def fetch_apt_trades(lawd_cd, deal_ymd):
     return trades
 
 
-def get_recent_trades(lawd_cd, dong, area, recent_count, apt_name=""):
+def get_recent_trades(lawd_cd, dong, area, recent_count, apt_name="", bldg_type="아파트"):
     """동 + 면적 + 아파트명 조건으로 필터링한 최근 N건 실거래 반환"""
     matched = []
     for ym in get_year_months(SEARCH_MONTHS):
         print(f"  📅 {ym} 조회 중...")
-        trades = fetch_apt_trades(lawd_cd, ym)
+        trades = fetch_apt_trades(lawd_cd, ym, bldg_type)
 
         for t in trades:
             if dong not in t["dong"]:
@@ -435,11 +441,11 @@ def main():
         lawd_cd = addr["lawd_cd"]
         dong    = addr["dong"]
         apt_name = asset["apt_name"]
-        print(f"   법정동코드: {lawd_cd} | 동명: {dong} | 아파트명: {apt_name if apt_name else '(미입력)'}")
+        print(f"   법정동코드: {lawd_cd} | 동명: {dong} | {asset['bldg_type']} | 아파트명: {apt_name if apt_name else '(미입력)'}")
 
         # [1/4] 실거래가 API 조회
         print(f"\n[1/4] 실거래가 API 조회 (최근 {RECENT_COUNT}건, ±{AREA_MARGIN}㎡)")
-        trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT, asset["apt_name"])
+        trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT, asset["apt_name"], asset["bldg_type"])
 
         if not trades:
             print(f"  ⚠ 실거래 데이터 없음 — 현재가/평가액 공란으로 행 생성")
