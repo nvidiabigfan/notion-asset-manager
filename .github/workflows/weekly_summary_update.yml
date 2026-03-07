@@ -1,36 +1,35 @@
-name: Weekly Asset Summary
+name: Weekly Asset Summary Update
 
-# real_estate_update 완료 후 자동 트리거
 on:
+  # Phase 5 (crypto_price_update) 완료 후 자동 트리거
   workflow_run:
-    workflows: ["Real Estate Price Update"]
-    types: [completed]
+    workflows: ["Crypto Price Update"]
+    types:
+      - completed
 
-  # 수동 실행도 가능 (테스트용)
+  # 수동 실행용
   workflow_dispatch:
 
 jobs:
-  summarize:
+  update-weekly-summary:
     runs-on: ubuntu-latest
-    # 부동산 업데이트 성공 시에만 실행 (수동 실행은 항상 실행)
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests pytz
+        run: pip install requests
 
-      - name: Run weekly asset summary
-        run: python weekly_summary_automation.py
+      - name: Run weekly summary automation
         env:
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_TOKEN:      ${{ secrets.NOTION_TOKEN }}
+          DB_EVAL_RESULT:    ${{ secrets.DB_EVAL_RESULT }}
           DB_WEEKLY_SUMMARY: ${{ secrets.DB_WEEKLY_SUMMARY }}
+        run: python weekly_summary_automation.py
