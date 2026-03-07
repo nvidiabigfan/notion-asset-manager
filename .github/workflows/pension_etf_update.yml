@@ -1,12 +1,10 @@
 name: Pension ETF Price Update
 
 on:
-  # Phase 3 (real_estate_update) 완료 후 자동 트리거
   workflow_run:
     workflows: ["Real Estate Price Update"]
     types:
       - completed
-
   workflow_dispatch:
 
 jobs:
@@ -24,7 +22,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests pykrx
 
       - name: Run pension ETF automation
         env:
