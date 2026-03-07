@@ -177,11 +177,16 @@ def get_real_estate_assets():
             print(f"  ⚠ '{asset_name}' — 전용면적 미입력, 건너뜀")
             continue
 
+        # 아파트명 (Text 컬럼)
+        apt_items = props.get("아파트명", {}).get("rich_text", [])
+        apt_name = apt_items[0]["text"]["content"] if apt_items else ""
+
         assets.append({
             "asset_name": asset_name,
             "quantity":   num("수량"),
             "unit_price": num("금액"),
             "area":       area,
+            "apt_name":   apt_name,
         })
 
     print(f"  📋 부동산 자산 {len(assets)}건 조회됨")
@@ -267,8 +272,8 @@ def fetch_apt_trades(lawd_cd, deal_ymd):
     return trades
 
 
-def get_recent_trades(lawd_cd, dong, area, recent_count):
-    """동 + 면적 조건으로 필터링한 최근 N건 실거래 반환"""
+def get_recent_trades(lawd_cd, dong, area, recent_count, apt_name=""):
+    """동 + 면적 + 아파트명 조건으로 필터링한 최근 N건 실거래 반환"""
     matched = []
     for ym in get_year_months(SEARCH_MONTHS):
         print(f"  📅 {ym} 조회 중...")
@@ -278,6 +283,9 @@ def get_recent_trades(lawd_cd, dong, area, recent_count):
             if dong not in t["dong"]:
                 continue
             if abs(t["area"] - area) > AREA_MARGIN:
+                continue
+            # 아파트명 필터 (입력된 경우만 적용)
+            if apt_name and apt_name not in t["apt_name"]:
                 continue
             matched.append(t)
 
@@ -426,11 +434,12 @@ def main():
 
         lawd_cd = addr["lawd_cd"]
         dong    = addr["dong"]
-        print(f"   법정동코드: {lawd_cd} | 동명: {dong}")
+        apt_name = asset["apt_name"]
+        print(f"   법정동코드: {lawd_cd} | 동명: {dong} | 아파트명: {apt_name if apt_name else '(미입력)'}")
 
         # [1/4] 실거래가 API 조회
         print(f"\n[1/4] 실거래가 API 조회 (최근 {RECENT_COUNT}건, ±{AREA_MARGIN}㎡)")
-        trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT)
+        trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT, asset["apt_name"])
 
         if not trades:
             print(f"  ⚠ 실거래 데이터 없음 — 현재가/평가액 공란으로 행 생성")
