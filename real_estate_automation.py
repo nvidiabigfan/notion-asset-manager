@@ -230,26 +230,27 @@ def get_prev_eval(asset_name: str) -> float:
 def save_to_real_estate_db(asset_name: str, trades: list[dict], avg_price: float):
     """
     부동산 실거래가 DB에 저장
-    기존 레코드(동일 자산명 + 오늘 날짜)가 있으면 업데이트, 없으면 신규 생성
+    노션 DB 실제 컬럼: 지번/주소(Title), 거래일자(Date), 거래금액(Number), 출처(Text), 비고(Text)
+    기존 레코드(동일 지번/주소 + 오늘 날짜)가 있으면 업데이트, 없으면 신규 생성
     """
     today_str = datetime.now().strftime("%Y-%m-%d")
 
-    # 기존 레코드 조회 (자산명 + 오늘)
+    # 기존 레코드 조회 (지번/주소 + 오늘)
     resp = notion_request(
         "POST",
         f"https://api.notion.com/v1/databases/{DB_REAL_ESTATE}/query",
         json={
             "filter": {
                 "and": [
-                    {"property": "자산명", "title": {"equals": asset_name}},
-                    {"property": "조회일자", "date": {"equals": today_str}},
+                    {"property": "지번/주소", "title": {"equals": asset_name}},
+                    {"property": "거래일자", "date": {"equals": today_str}},
                 ]
             }
         }
     )
     existing = resp.get("results", [])
 
-    # 참고값: 최근 거래 목록 요약
+    # 비고: 최근 거래 목록 요약
     ref_lines = []
     for t in trades:
         price_uk = t["price_won"] // 100_000_000
@@ -261,11 +262,11 @@ def save_to_real_estate_db(asset_name: str, trades: list[dict], avg_price: float
     ref_text = "\n".join(ref_lines)
 
     properties = {
-        "자산명":   {"title": [{"text": {"content": asset_name}}]},
-        "조회일자": {"date": {"start": today_str}},
-        "평균거래가": {"number": avg_price},
-        "거래건수":  {"number": len(trades)},
-        "참고값":   {"rich_text": [{"text": {"content": ref_text[:2000]}}]},
+        "지번/주소": {"title": [{"text": {"content": asset_name}}]},
+        "거래일자":  {"date": {"start": today_str}},
+        "거래금액":  {"number": round(avg_price)},
+        "출처":     {"rich_text": [{"text": {"content": "국토부"}}]},
+        "비고":     {"rich_text": [{"text": {"content": ref_text[:2000]}}]},
     }
 
     if existing:
