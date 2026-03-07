@@ -1,0 +1,31 @@
+name: Phase 3 - 부동산 실거래가 업데이트
+
+on:
+  schedule:
+    # 매주 토요일 12:00 KST (= UTC 03:00)
+    - cron: '0 3 * * 6'
+  workflow_dispatch:   # 수동 실행 허용
+
+jobs:
+  update-real-estate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests python-dateutil
+
+      - name: Run real estate price update
+        env:
+          NOTION_TOKEN:        ${{ secrets.NOTION_TOKEN }}
+          PUBLIC_DATA_API_KEY: ${{ secrets.PUBLIC_DATA_API_KEY }}
+        run: python real_estate_automation.py
