@@ -11,6 +11,11 @@ Phase 2: 주식 시세 자동화
   - 과거 이력:      매도 이전의 자산평가 결과 레코드는 삭제하지 않고 그대로 보존
   ※ 별도 매도 감지 로직 없이, 매주 실행 시점의 자산보유현황을
      source of truth로 사용하는 것만으로 자연스럽게 구현됨
+
+■ 평가일자 기준
+  - 야후 파이낸스가 반환하는 실제 거래일(금요일 등)이 아닌
+    스크립트 실행일(KST 토요일)을 평가일자로 통일 저장
+  - 실제 참조한 거래일은 로그에만 출력
 """
 
 import os
@@ -32,28 +37,17 @@ DB_EVAL_RESULT     = "31a64e13bb46802c91e1f5502631a154"  # 자산평가 결과
 
 KST = timezone(timedelta(hours=9))
 
-# ※ 티커/코드는 자산보유현황 DB의 "티커/코드" 컬럼에서 직접 읽어옴
-#   → 종목 추가 시 코드 수정 불필요, 노션에서만 관리
-
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
     "Notion-Version": "2022-06-28",
     "Content-Type": "application/json",
 }
 
-# 노션 API rate limit 대응
-# 공식 제한: 초당 3회 평균 → 호출 간 0.4초 간격으로 여유 확보
-# 429 응답 시 Retry-After 헤더 값만큼 대기 후 1회 재시도
-NOTION_CALL_INTERVAL = 0.4  # 초
+NOTION_CALL_INTERVAL = 0.4  # 초당 3회 제한 대응
 
 
 # ── Notion API 헬퍼 ───────────────────────────────────────────────────────────
 def notion_request(method: str, path: str, body: dict = None) -> dict:
-    """
-    노션 API 호출 with rate limit 대응
-    - 매 호출 후 NOTION_CALL_INTERVAL 초 대기 (초당 3회 제한 준수)
-    - 429 응답 시 Retry-After 헤더 값만큼 대기 후 1회 재시도
-    """
     url  = f"https://api.notion.com/v1{path}"
     data = json.dumps(body).encode() if body else None
     req  = urllib.request.Request(url, data=data, headers=HEADERS, method=method)
@@ -71,12 +65,11 @@ def notion_request(method: str, path: str, body: dict = None) -> dict:
         else:
             raise
 
-    time.sleep(NOTION_CALL_INTERVAL)  # 다음 호출 전 인터벌 확보
+    time.sleep(NOTION_CALL_INTERVAL)
     return result
 
 
 def query_db(db_id: str, filter_body: dict = None, sorts: list = None) -> list:
-    """DB 전체 페이지 조회 (페이지네이션 처리)"""
     results = []
     body = {}
     if filter_body:
@@ -95,8 +88,7 @@ def query_db(db_id: str, filter_body: dict = None, sorts: list = None) -> list:
 
 
 def get_prop(page: dict, name: str):
-    """페이지 프로퍼티 값 추출"""
-    prop = page.get("properties", {}).get(name, {})
+    prop  = page.get("properties", {}).get(name, {})
     ptype = prop.get("type")
 
     if ptype == "title":
@@ -123,13 +115,12 @@ def fetch_stock_price(ticker: str) -> dict:
     토요일/공휴일 등 비거래일에 실행해도 가장 최근 거래일 종가를 반환.
 
     반환: {
-        "price": float,          # 최근 거래일 종가
-        "currency": str,         # KRW / USD
-        "last_trade_date": str,  # 실제 거래일 (YYYY-MM-DD)
-        "market_state": str,     # CLOSED / PRE / REGULAR / POST
+        "price":           float,  # 최근 거래일 종가
+        "currency":        str,    # KRW / USD
+        "last_trade_date": str,    # 실제 마지막 거래일 (로그용, 노션 저장 안 함)
+        "market_state":    str,    # CLOSED / PRE / REGULAR / POST
     }
     """
-    # range=5d 로 최근 5거래일 데이터를 요청 → 마지막 봉이 항상 최근 거래일 종가
     url = (
         f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker)}"
         f"?interval=1d&range=5d"
@@ -145,37 +136,33 @@ def fetch_stock_price(ticker: str) -> dict:
     with urllib.request.urlopen(req, timeout=10) as resp:
         data = json.loads(resp.read())
 
-    result   = data["chart"]["result"][0]
-    meta     = result["meta"]
-    currency = meta.get("currency", "")
+    result       = data["chart"]["result"][0]
+    meta         = result["meta"]
+    currency     = meta.get("currency", "")
     market_state = meta.get("marketState", "")
 
-    # 종가 배열에서 마지막 유효값 = 최근 거래일 종가
     closes     = result["indicators"]["quote"][0].get("close", [])
     timestamps = result.get("timestamp", [])
 
-    # None 제거 후 마지막 값 사용
     valid_pairs = [
         (ts, c) for ts, c in zip(timestamps, closes) if c is not None
     ]
     if not valid_pairs:
-        # fallback: meta의 previousClose
         price = meta.get("previousClose") or meta.get("regularMarketPrice")
         last_trade_date = "unknown"
     else:
-        last_ts, price = valid_pairs[-1]
-        # timestamp → KST 날짜 (한국·미국 모두 UTC 기준 변환)
+        last_ts, price  = valid_pairs[-1]
         last_trade_date = datetime.fromtimestamp(last_ts, tz=timezone.utc).strftime("%Y-%m-%d")
 
     return {
         "price":           price,
         "currency":        currency,
-        "last_trade_date": last_trade_date,
+        "last_trade_date": last_trade_date,   # 로그 출력용 only
         "market_state":    market_state,
     }
 
 
-# ── 환율 조회 (환율정보 DB 최신 레코드) ───────────────────────────────────────
+# ── 환율 조회 ─────────────────────────────────────────────────────────────────
 def get_latest_usd_krw() -> float:
     rows = query_db(
         DB_EXCHANGE_RATE,
@@ -192,33 +179,22 @@ def get_latest_usd_krw() -> float:
 
 # ── 자산보유현황 DB 조회 ──────────────────────────────────────────────────────
 def get_holdings() -> list:
-    """
-    주식 보유 내역만 반환 (자산분류 = 한국주식 | 미국주식)
-
-    이 함수가 반환하는 목록이 해당 주 토요일 평가의 전부.
-    - 자산보유현황에 있는 종목만 평가 대상 → 매수 종목 자동 포함
-    - 자산보유현황에서 삭제된 종목은 조회되지 않음 → 매도 종목 자동 제외
-    - 티커는 노션 "티커/코드" 컬럼에서 직접 읽음 → 코드 수정 없이 종목 추가 가능
-    - 티커/코드가 비어있는 종목은 SKIP (로그 출력)
-    """
-    rows = query_db(DB_ASSET_HOLDINGS)
+    rows     = query_db(DB_ASSET_HOLDINGS)
     holdings = []
     for row in rows:
         category = get_prop(row, "자산분류")
         if category not in ("한국주식", "미국주식"):
             continue
 
-        name            = get_prop(row, "자산명")
-        ticker          = get_prop(row, "티커/코드") or ""
-        quantity        = get_prop(row, "수량") or 0
-        unit_price_buy  = get_prop(row, "금액")   # 매수 당시 단가 (KRW 또는 USD)
+        name           = get_prop(row, "자산명")
+        ticker         = get_prop(row, "티커/코드") or ""
+        quantity       = get_prop(row, "수량") or 0
+        unit_price_buy = get_prop(row, "금액")
 
         if not ticker.strip():
             print(f"  [SKIP] {name} — 티커/코드 미입력")
             continue
 
-        # 한국주식은 야후 파이낸스 티커에 .KS 접미사 필요
-        # 노션에 005930 으로 입력해도 자동으로 005930.KS 로 변환
         if category == "한국주식" and not ticker.upper().endswith(".KS"):
             ticker = ticker + ".KS"
 
@@ -227,17 +203,17 @@ def get_holdings() -> list:
             "ticker":         ticker.strip(),
             "quantity":       quantity,
             "category":       category,
-            "unit_price_buy": unit_price_buy,  # 매수 단가 (없으면 None)
+            "unit_price_buy": unit_price_buy,
         })
     return holdings
 
 
 # ── 직전평가액 조회 ───────────────────────────────────────────────────────────
-def get_prev_eval_amount(asset_name: str, current_trade_date: str) -> float | None:
+def get_prev_eval_amount(asset_name: str, run_date: str) -> float | None:
     """
     자산평가 결과 DB에서 해당 자산의 직전 레코드 평가액을 반환.
-    - 현재 거래일보다 이전인 레코드 중 가장 최근 것을 사용
-    - 첫 등록 종목(이력 없음)이면 None 반환 → 직전평가액 컬럼 비워둠
+    - 평가일자(Title)가 run_date(실행일) 미만인 레코드 중 가장 최근 것 사용
+    - 첫 등록 종목이면 None 반환
     """
     rows = query_db(
         DB_EVAL_RESULT,
@@ -248,8 +224,8 @@ def get_prev_eval_amount(asset_name: str, current_trade_date: str) -> float | No
     )
 
     for row in rows:
-        row_date = get_prop(row, "평가일자")  # Title 컬럼
-        if row_date and row_date < current_trade_date:
+        row_date = get_prop(row, "평가일자")   # Title 컬럼 (YYYY-MM-DD)
+        if row_date and row_date < run_date:
             prev_amount = get_prop(row, "평가액")
             if prev_amount is not None:
                 print(f"     직전평가액: {prev_amount:,.0f}원 ({row_date})")
@@ -261,30 +237,25 @@ def get_prev_eval_amount(asset_name: str, current_trade_date: str) -> float | No
 
 # ── 자산평가 결과 DB 저장 ─────────────────────────────────────────────────────
 def upsert_eval_result(
-    asset_name: str,
-    category: str,
-    quantity: float,
-    unit_price_krw: float,
-    eval_amount_krw: float,
-    purchase_amount: float | None,   # 매수원가 (자산보유현황의 금액 컬럼)
-    prev_eval_amount: float | None,  # 직전 주 평가액 (없으면 None)
-    trade_date: str,                 # 실제 마지막 거래일 (YYYY-MM-DD)
+    asset_name:       str,
+    category:         str,
+    quantity:         float,
+    unit_price_krw:   float,
+    eval_amount_krw:  float,
+    purchase_amount:  float | None,
+    prev_eval_amount: float | None,
+    run_date:         str,           # ← 실행일(KST 토요일) 기준으로 통일
 ) -> None:
     """
-    자산평가 결과 DB에 거래일 기준 레코드 UPSERT
-    - 동일 (자산명 + 평가일자) 레코드가 있으면 업데이트, 없으면 신규 생성
-
-    노션 DB 컬럼 구성 (실제 확인 기준):
-      평가일자 (Title) / 자산명 (Text) / 자산분류 (Select)
-      수량 (Number) / 금액 (Number, 매수원가) / 현재가 (Number)
-      평가액 (Number) / 직전평가액 (Number) / 변동액 (수식) / 변동율 (수식)
+    자산평가 결과 DB에 실행일 기준 레코드 UPSERT
+    평가일자 = run_date (스크립트 실행 KST 날짜, 실제 거래일과 무관)
     """
     existing = query_db(
         DB_EVAL_RESULT,
         filter_body={
             "and": [
                 {"property": "자산명",  "rich_text": {"equals": asset_name}},
-                {"property": "평가일자", "title":     {"equals": trade_date}},
+                {"property": "평가일자", "title":     {"equals": run_date}},
             ]
         },
     )
@@ -293,7 +264,7 @@ def upsert_eval_result(
         "자산명":     {"rich_text": [{"text": {"content": asset_name}}]},
         "자산분류":   {"select":    {"name": category}},
         "수량":       {"number": quantity},
-        "금액":       {"number": purchase_amount},           # 매수원가
+        "금액":       {"number": purchase_amount},
         "현재가":     {"number": round(unit_price_krw)},
         "평가액":     {"number": round(eval_amount_krw)},
         "직전평가액": {"number": round(prev_eval_amount) if prev_eval_amount is not None else None},
@@ -304,7 +275,7 @@ def upsert_eval_result(
         notion_request("PATCH", f"/pages/{page_id}", {"properties": props})
         print(f"  [업데이트] {asset_name}: {eval_amount_krw:,.0f}원")
     else:
-        props["평가일자"] = {"title": [{"text": {"content": trade_date}}]}
+        props["평가일자"] = {"title": [{"text": {"content": run_date}}]}
         notion_request(
             "POST",
             "/pages",
@@ -315,7 +286,7 @@ def upsert_eval_result(
 
 # ── 메인 ──────────────────────────────────────────────────────────────────────
 def main():
-    run_date = datetime.now(KST).strftime("%Y-%m-%d")  # 스크립트 실행일 (토요일)
+    run_date = datetime.now(KST).strftime("%Y-%m-%d")   # 실행일 = 평가일자 기준 (토요일)
     print(f"\n{'='*55}")
     print(f"  주식 시세 자동화 실행 — {run_date} (KST)")
     print(f"{'='*55}")
@@ -342,7 +313,7 @@ def main():
         ticker         = holding["ticker"]
         qty            = holding["quantity"]
         category       = holding["category"]
-        unit_price_buy = holding["unit_price_buy"]  # 매수 단가
+        unit_price_buy = holding["unit_price_buy"]
 
         print(f"\n  >> {name} ({ticker})")
         try:
@@ -351,21 +322,20 @@ def main():
             print(f"  [ERROR] 주가 조회 실패: {e}")
             continue
 
-        price            = stock["price"]
-        currency         = stock["currency"]
-        last_trade_date  = stock["last_trade_date"]
+        price           = stock["price"]
+        currency        = stock["currency"]
+        last_trade_date = stock["last_trade_date"]  # 로그 출력용
 
-        print(f"     기준거래일: {last_trade_date}  (실행일: {run_date})")
+        # 평가일자는 run_date(실행일)로 통일, 실제 거래일은 로그에만 표시
+        print(f"     실제거래일: {last_trade_date}  →  평가일자: {run_date} (실행일 기준 통일)")
         print(f"     종가: {price} {currency}  (시장상태: {stock['market_state']})")
 
         if currency == "KRW":
             unit_price_krw = price
-            # 매수원가: 단가(KRW) × 수량
             buy_eval = (unit_price_buy * qty) if unit_price_buy is not None else None
         else:
             unit_price_krw = price * usd_krw
             print(f"     원화환산: {unit_price_krw:,.0f}원 (×{usd_krw:,.2f})")
-            # 매수원가: 단가(USD) × 수량 × 현재환율 (매수 당시 환율 미보존 → 현재 환율 적용)
             buy_eval = (unit_price_buy * qty * usd_krw) if unit_price_buy is not None else None
 
         if buy_eval is not None:
@@ -374,8 +344,8 @@ def main():
         eval_amount = unit_price_krw * qty
         print(f"     평가금액: {eval_amount:,.0f}원 ({qty}주)")
 
-        # 직전평가액 조회 (첫 등록이면 None)
-        prev_eval = get_prev_eval_amount(name, last_trade_date)
+        # 직전평가액 조회 (run_date 기준 이전 데이터)
+        prev_eval = get_prev_eval_amount(name, run_date)
 
         upsert_eval_result(
             asset_name=name,
@@ -385,7 +355,7 @@ def main():
             eval_amount_krw=eval_amount,
             purchase_amount=round(buy_eval) if buy_eval is not None else None,
             prev_eval_amount=prev_eval,
-            trade_date=last_trade_date,
+            run_date=run_date,           # ← last_trade_date 대신 run_date 사용
         )
 
         summary.append({
@@ -401,7 +371,7 @@ def main():
     print(f"{'='*55}")
     total = 0
     for s in summary:
-        print(f"  {s['name']:15s}  {s['eval_amount']:>15,.0f} 원  ({s['last_trade_date']} 종가)")
+        print(f"  {s['name']:15s}  {s['eval_amount']:>15,.0f} 원  (거래일: {s['last_trade_date']})")
         total += s["eval_amount"]
     print(f"  {'합계':15s}  {total:>15,.0f} 원")
     print(f"{'='*55}\n")
