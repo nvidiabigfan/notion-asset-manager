@@ -338,12 +338,12 @@ def save_to_real_estate_db(asset_name, trades, avg_price):
 
 
 def save_to_eval_result_db(asset, current_price, prev_eval):
-    """자산평가 결과 DB 저장 (주식과 동일한 구조)"""
+    """자산평가 결과 DB 저장 - current_price=None이면 현재가/평가액 공란"""
     today_str  = datetime.now().strftime("%Y-%m-%d")
     asset_name = asset["asset_name"]
     quantity   = asset["quantity"] if asset["quantity"] > 0 else 1
     cost       = asset["unit_price"] * quantity
-    eval_amt   = current_price * quantity
+    eval_amt   = current_price * quantity if current_price is not None else None
 
     resp = notion_request(
         "POST",
@@ -365,8 +365,8 @@ def save_to_eval_result_db(asset, current_price, prev_eval):
         "자산분류":   {"select": {"name": "부동산"}},
         "수량":       {"number": quantity},
         "금액":       {"number": round(cost)},
-        "현재가":     {"number": round(current_price)},
-        "평가액":     {"number": round(eval_amt)},
+        "현재가":     {"number": round(current_price) if current_price is not None else None},
+        "평가액":     {"number": round(eval_amt) if eval_amt is not None else None},
         "직전평가액": {"number": round(prev_eval)},
     }
 
@@ -376,14 +376,16 @@ def save_to_eval_result_db(asset, current_price, prev_eval):
             f"https://api.notion.com/v1/pages/{existing[0]['id']}",
             json={"properties": properties}
         )
-        print(f"  ✅ 자산평가 결과 DB 업데이트: {asset_name} | 평가액 {eval_amt:,.0f}원")
+        eval_str = f"{eval_amt:,.0f}원" if eval_amt is not None else "공란"
+        print(f"  ✅ 자산평가 결과 DB 업데이트: {asset_name} | 평가액 {eval_str}")
     else:
         notion_request(
             "POST",
             "https://api.notion.com/v1/pages",
             json={"parent": {"database_id": DB_EVAL_RESULT}, "properties": properties}
         )
-        print(f"  ✅ 자산평가 결과 DB 저장: {asset_name} | 평가액 {eval_amt:,.0f}원")
+        eval_str = f"{eval_amt:,.0f}원" if eval_amt is not None else "공란(실거래 데이터 없음)"
+        print(f"  ✅ 자산평가 결과 DB 저장: {asset_name} | 평가액 {eval_str}")
 
     time.sleep(0.4)
 
@@ -424,28 +426,28 @@ def main():
         trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT)
 
         if not trades:
-            print(f"  ⚠ 실거래 데이터 없음 — 건너뜀")
-            print(f"     ※ AREA_MARGIN 또는 SEARCH_MONTHS 값을 늘려보세요")
-            continue
+            print(f"  ⚠ 실거래 데이터 없음 — 현재가/평가액 공란으로 행 생성")
+            avg_price = None
+        else:
+            print(f"  📊 조회된 거래: {len(trades)}건")
+            for t in trades:
+                price_uk = t["price_won"] // 100_000_000
+                price_ck = (t["price_won"] % 100_000_000) // 10_000
+                print(f"     {t['deal_date']} | {t['apt_name']} {t['floor']}층 | "
+                      f"{t['area']}㎡ | {price_uk}억{price_ck:,}만원")
+            avg_price = sum(t["price_won"] for t in trades) / len(trades)
+            avg_uk = avg_price // 100_000_000
+            avg_ck = (avg_price % 100_000_000) // 10_000
+            print(f"\n[2/4] 평균 실거래가: {avg_uk:.0f}억 {avg_ck:,.0f}만원")
 
-        print(f"  📊 조회된 거래: {len(trades)}건")
-        for t in trades:
-            price_uk = t["price_won"] // 100_000_000
-            price_ck = (t["price_won"] % 100_000_000) // 10_000
-            print(f"     {t['deal_date']} | {t['apt_name']} {t['floor']}층 | "
-                  f"{t['area']}㎡ | {price_uk}억{price_ck:,}만원")
+        # [3/4] 부동산 실거래가 DB 저장 (실거래 있을 때만)
+        if trades and avg_price is not None:
+            print(f"\n[3/4] 부동산 실거래가 DB 저장")
+            save_to_real_estate_db(asset_name, trades, avg_price)
+        else:
+            print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (데이터 없음)")
 
-        # [2/4] 평균 산출
-        avg_price = sum(t["price_won"] for t in trades) / len(trades)
-        avg_uk = avg_price // 100_000_000
-        avg_ck = (avg_price % 100_000_000) // 10_000
-        print(f"\n[2/4] 평균 실거래가: {avg_uk:.0f}억 {avg_ck:,.0f}만원")
-
-        # [3/4] 부동산 실거래가 DB 저장
-        print(f"\n[3/4] 부동산 실거래가 DB 저장")
-        save_to_real_estate_db(asset_name, trades, avg_price)
-
-        # [4/4] 자산평가 결과 DB 저장
+        # [4/4] 자산평가 결과 DB 저장 (항상 실행 - 공란이라도 행 생성)
         print(f"\n[4/4] 자산평가 결과 DB 저장")
         prev_eval = get_prev_eval(asset_name)
         save_to_eval_result_db(asset, avg_price, prev_eval)
