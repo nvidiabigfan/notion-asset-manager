@@ -7,9 +7,13 @@ Phase 6 - 연금ETF/펀드 현재가 조회 및 자산평가결과 DB 저장
   펀드 (비상장 수익증권): A로 시작  예) A0040Y0, A441800
 
 [현재가 조회 방법]
-  ETF  → 야후파이낸스  (ticker.KS)
-  펀드 → 네이버 금융 모바일 API  (m.stock.naver.com/api/fund/{code}/basic)
+  ETF  → 야후파이낸스  (ticker.KS) - GitHub Actions 환경에서 정상 작동
+  펀드 → KOFIA freesis.kofia.or.kr POST API (공공기관, IP 차단 없음, API키 불필요)
          └ 기준가(NAV): 전일 장 마감 기준 T+1 공시
+         └ 실패시 pykrx 라이브러리로 fallback
+
+[네이버 금융 API 사용 불가 이유]
+  GitHub Actions IP(Azure 미국 대역)를 네이버가 봇으로 차단함
 """
 
 import os
@@ -30,16 +34,6 @@ HEADERS = {
 }
 
 KST = timezone(timedelta(hours=9))
-
-BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://m.stock.naver.com/",
-    "Accept": "application/json, text/plain, */*",
-}
 
 
 def get_run_date() -> str:
@@ -98,9 +92,8 @@ def fetch_pension_holdings() -> list[dict]:
     return holdings
 
 
-# ── 2-A. 야후파이낸스 (ETF) ───────────────────────────────
+# ── 2-A. 야후파이낸스 (ETF, 숫자 6자리) ──────────────────
 def fetch_yahoo_price(ticker: str) -> float | None:
-    """숫자 6자리 ETF → Yahoo Finance .KS"""
     yahoo_symbol = f"{ticker}.KS"
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
     params = {"interval": "1d", "range": "1d"}
@@ -124,62 +117,104 @@ def fetch_yahoo_price(ticker: str) -> float | None:
     return None
 
 
-# ── 2-B. 네이버 금융 모바일 API (펀드) ────────────────────
-def fetch_naver_fund_price(ticker: str) -> float | None:
+# ── 2-B. KOFIA freesis API (펀드, A코드) ─────────────────
+def fetch_kofia_price(ticker: str) -> float | None:
     """
-    A코드 펀드 → 네이버 금융 모바일 API
-    엔드포인트: https://m.stock.naver.com/api/fund/{fundCode}/basic
-    응답 키: nav (기준가, 전일 장 마감 기준 T+1 공시)
-    """
-    url = f"https://m.stock.naver.com/api/fund/{ticker}/basic"
+    금융투자협회 종합통계 포털 비공식 API
+    URL: https://freesis.kofia.or.kr/gw/fundPub/FundInfoService/getStdPrcByStdCd
+    방식: POST, Content-Type: application/json
+    요청: {"standardCd": "A0040Y0", "standardDt": "20260307"}
+    응답: {"standardPrice": "1234.56", "standardDt": "20260307", ...}
 
-    for attempt in range(3):
+    - 공공기관 서버 → GitHub Actions IP 차단 없음
+    - API 키 불필요
+    - 기준일자를 최근 영업일로 자동 탐색 (최대 7일 전까지)
+    """
+    base_url = "https://freesis.kofia.or.kr/gw/fundPub/FundInfoService/getStdPrcByStdCd"
+    kst_now  = datetime.now(KST)
+
+    # 최근 영업일 탐색 (오늘부터 최대 7일 전까지)
+    for days_ago in range(7):
+        target_dt = kst_now - timedelta(days=days_ago)
+        # 주말 건너뜀
+        if target_dt.weekday() >= 5:
+            continue
+        date_str = target_dt.strftime("%Y%m%d")
+
         try:
-            res = requests.get(url, headers=BROWSER_HEADERS, timeout=10)
+            payload = {"standardCd": ticker.upper(), "standardDt": date_str}
+            res = requests.post(
+                base_url,
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://freesis.kofia.or.kr/",
+                },
+                timeout=10
+            )
             res.raise_for_status()
             data = res.json()
 
-            # nav 필드: 기준가 (문자열 "1,234.56" 또는 숫자)
-            nav_raw = (
-                data.get("nav")
-                or data.get("standardPrice")
-                or data.get("currentPrice")
+            # 응답 구조 탐색
+            price_raw = (
+                data.get("standardPrice")
+                or data.get("nav")
+                or data.get("stdPrc")
+                or (data.get("output", {}) or {}).get("standardPrice")
             )
-            if nav_raw is not None:
-                # 콤마/공백 제거 후 float 변환
-                price = float(str(nav_raw).replace(",", "").strip())
-                print(f"[Naver] {ticker} 기준가 → {price:,.2f}원")
+            if price_raw:
+                price = float(str(price_raw).replace(",", "").strip())
+                print(f"[KOFIA] {ticker} 기준가({date_str}) → {price:,.2f}원")
                 return price
-            else:
-                print(f"[Naver] ⚠️  {ticker} 응답에 기준가 키 없음: {list(data.keys())}")
-                return None
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "?"
-            print(f"[Naver] ⚠️  {ticker} HTTP {status} 시도 {attempt+1}/3")
             if status == 404:
-                print(f"[Naver] ❌ {ticker} 펀드코드 미등록 - 건너뜀")
+                print(f"[KOFIA] ❌ {ticker} 펀드코드 미존재 ({date_str})")
                 return None
-            if attempt < 2:
-                time.sleep(3)
+            print(f"[KOFIA] ⚠️  {ticker} HTTP {status} ({date_str})")
         except Exception as e:
-            print(f"[Naver] ⚠️  {ticker} 시도 {attempt+1}/3 실패: {e}")
-            if attempt < 2:
-                time.sleep(3)
+            print(f"[KOFIA] ⚠️  {ticker} 오류 ({date_str}): {e}")
 
+        time.sleep(0.3)
+
+    # KOFIA 실패 시 pykrx fallback
+    return fetch_pykrx_fund_price(ticker)
+
+
+def fetch_pykrx_fund_price(ticker: str) -> float | None:
+    """
+    pykrx 라이브러리 fallback (KRX 공식 데이터)
+    주의: pykrx는 A코드 펀드를 지원하지 않을 수 있음
+    """
+    try:
+        from pykrx import stock
+        kst_now = datetime.now(KST)
+        # 최근 5영업일 범위로 조회
+        to_date   = kst_now.strftime("%Y%m%d")
+        from_date = (kst_now - timedelta(days=10)).strftime("%Y%m%d")
+
+        df = stock.get_fund_ohlcv_by_date(from_date, to_date, ticker)
+        if df is not None and not df.empty:
+            price = float(df["종가"].iloc[-1])
+            print(f"[pykrx] {ticker} 기준가 → {price:,.2f}원")
+            return price
+    except Exception as e:
+        print(f"[pykrx] ⚠️  {ticker} 조회 실패: {e}")
     return None
 
 
-# ── 2. 가격 조회 (ETF/펀드 분기) ─────────────────────────
+# ── 2. 가격 조회 통합 (ETF/펀드 분기) ────────────────────
 def fetch_price(holding: dict) -> float | None:
     ticker = holding["ticker"]
     if holding["is_fund"]:
-        price = fetch_naver_fund_price(ticker)
+        price = fetch_kofia_price(ticker)
     else:
         price = fetch_yahoo_price(ticker)
         if price:
             print(f"[Yahoo] {ticker}.KS → {price:,.0f}원")
-    time.sleep(0.5)
+    time.sleep(0.3)
     return price
 
 
@@ -204,16 +239,13 @@ def fetch_prev_eval(asset_name: str, run_date: str) -> float | None:
             props       = page["properties"]
             title_arr   = props.get("평가일자", {}).get("title", [])
             stored_date = title_arr[0]["plain_text"].strip() if title_arr else ""
-
             if not stored_date or stored_date >= run_date:
                 continue
-
             name_arr    = props.get("자산명", {}).get("rich_text", [])
             stored_name = name_arr[0]["plain_text"].strip() if name_arr else ""
             if stored_name == asset_name:
                 val = props.get("평가액", {}).get("number")
                 return float(val) if val is not None else None
-
         return None
     except Exception as e:
         print(f"[PrevEval] ⚠️  {asset_name} 직전평가액 조회 실패 (무시): {e}")
@@ -249,11 +281,11 @@ def save_eval_result(holding: dict, price: float | None, run_date: str) -> None:
                               "properties": properties})
     res.raise_for_status()
 
-    kind        = "펀드(NAV)" if holding["is_fund"] else "ETF"
-    price_str   = f"{price:,.2f}원" if holding["is_fund"] and price else \
-                  f"{price:,.0f}원" if price else "조회실패"
-    amount_str  = f"{eval_amount:,.0f}원" if eval_amount is not None else "-"
-    change_str  = ""
+    kind       = "펀드(NAV)" if holding["is_fund"] else "ETF"
+    price_str  = f"{price:,.2f}원" if holding["is_fund"] and price else \
+                 f"{price:,.0f}원" if price else "조회실패"
+    amount_str = f"{eval_amount:,.0f}원" if eval_amount is not None else "-"
+    change_str = ""
     if eval_amount and prev_amount:
         change_str = f"  변동: {eval_amount - prev_amount:+,.0f}원"
     print(f"[Notion] {name} [{kind}] 저장완료 | 가격: {price_str} | 평가액: {amount_str}{change_str}")
