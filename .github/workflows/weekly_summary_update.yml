@@ -1,0 +1,36 @@
+name: Weekly Asset Summary
+
+# real_estate_update 완료 후 자동 트리거
+on:
+  workflow_run:
+    workflows: ["Real Estate Price Update"]
+    types: [completed]
+
+  # 수동 실행도 가능 (테스트용)
+  workflow_dispatch:
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    # 부동산 업데이트 성공 시에만 실행 (수동 실행은 항상 실행)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests pytz
+
+      - name: Run weekly asset summary
+        run: python weekly_summary_automation.py
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_WEEKLY_SUMMARY: ${{ secrets.DB_WEEKLY_SUMMARY }}
