@@ -1,21 +1,10 @@
 """
-Phase 3: 부동산 실거래가 자동화
-- 자산보유현황 DB에서 '부동산' 분류 자산 자동 읽기 (하드코딩 없음)
-- 자산명(주소)에서 법정동코드·동명 자동 추출
-- 전용면적 컬럼을 자산보유현황 DB에서 읽어서 필터링에 사용
-- 국토교통부 API로 직전 5건 실거래가 평균 산출
-- 부동산 실거래가 DB + 자산평가 결과 DB에 저장
+Phase 3: 부동산 실거래가 자동화 (v2 - 노션 DB 스키마 완전 반영)
 
-GitHub Secrets 필요:
-  - NOTION_TOKEN
-  - PUBLIC_DATA_API_KEY  (공공데이터포털 발급, Decoding Key)
-
-노션 자산보유현황 DB 필요 컬럼:
-  - 전용면적 (Number, 단위: ㎡)
-
-■ 평가일자 기준
-  - 스크립트 실행일(KST 토요일)을 평가일자로 통일 저장
-  - 직전평가액 조회 시 run_date 미만 데이터만 참조 (당일 재실행 오염 방지)
+수정 내역:
+  1. get_prev_eval(): 평가일자(Title) 필터 → rich_text contains + Python에서 날짜 비교
+  2. save_to_eval_result_db(): None 값 properties에서 제외 (400 방지)
+  3. 중복 체크 쿼리: 평가일자 Title 필터 유지 (equals는 동작함)
 """
 
 import os
@@ -37,9 +26,9 @@ DB_REAL_ESTATE  = "31a64e13bb4680c18668eec357e11222"  # 부동산 실거래가
 DB_EVAL_RESULT  = "31a64e13bb46802c91e1f5502631a154"  # 자산평가 결과
 
 # ─── 실거래가 조회 공통 설정 ──────────────────────────────────────────────────
-RECENT_COUNT  = 5    # 직전 N개 실거래 평균
-SEARCH_MONTHS = 24   # 최대 소급 조회 개월수
-AREA_MARGIN   = 0.5  # 면적 허용 오차 (±㎡)
+RECENT_COUNT  = 5
+SEARCH_MONTHS = 24
+AREA_MARGIN   = 0.5
 
 # ─── 국토교통부 API endpoint ──────────────────────────────────────────────────
 MOLIT_API_URL = {
@@ -70,13 +59,12 @@ LAWD_CD_MAP = {
     "안성시": "41550", "김포시": "41570", "화성시": "41590",
     "광주시": "41610", "양주시": "41630", "포천시": "41650",
     "여주시": "41670",
-    # 충청남도 (천안시는 구 단위로 분리)
+    # 충청남도
     "천안시": "44130", "동남구": "44131", "서북구": "44133",
     "공주시": "44150", "보령시": "44180", "아산시": "44200",
     "서산시": "44210", "논산시": "44230", "계룡시": "44250", "당진시": "44270",
     # 충청북도
     "청주시": "43110", "충주시": "43130", "제천시": "43150",
-    # 필요 시 추가
 }
 
 NOTION_HEADERS = {
@@ -88,7 +76,6 @@ NOTION_HEADERS = {
 
 # ─── 유틸 ─────────────────────────────────────────────────────────────────────
 def notion_request(method, url, **kwargs):
-    """노션 API 호출 (429 rate limit 자동 재시도)"""
     for attempt in range(5):
         resp = requests.request(method, url, headers=NOTION_HEADERS, **kwargs)
         if resp.status_code == 429:
@@ -102,7 +89,6 @@ def notion_request(method, url, **kwargs):
 
 
 def get_year_months(months_back):
-    """현재 월부터 N개월 전까지 YYYYMM 리스트 반환 (최신 순)"""
     now = datetime.now()
     result = []
     for i in range(months_back):
@@ -112,42 +98,29 @@ def get_year_months(months_back):
 
 
 def parse_address(asset_name):
-    """
-    자산명(주소)에서 법정동코드와 동명 자동 추출
-    예) "서울시 영등포구 신길동 364"    → lawd_cd="11560", dong="신길동"
-    예) "경기도 화성시 병점동 123"      → lawd_cd="41590", dong="병점동"
-    예) "충청남도 천안시 동남구 두정동"  → lawd_cd="44131", dong="두정동"
-    """
     lawd_cd = None
-    # 1순위: "구" 단위 키 먼저 매칭 (동남구, 서북구 등 시보다 구체적)
     for sigungu, code in LAWD_CD_MAP.items():
         if sigungu.endswith("구") and sigungu in asset_name:
             lawd_cd = code
             break
-    # 2순위: 구 단위 없으면 시/군 단위로 매칭
     if not lawd_cd:
         for sigungu, code in LAWD_CD_MAP.items():
             if not sigungu.endswith("구") and sigungu in asset_name:
                 lawd_cd = code
                 break
-
     if not lawd_cd:
-        print(f"  ⚠ 법정동코드 매핑 실패: '{asset_name}' — LAWD_CD_MAP에 시군구 추가 필요")
+        print(f"  ⚠ 법정동코드 매핑 실패: '{asset_name}'")
         return {}
-
-    # 동/읍/면 추출 (가장 마지막에 등장하는 것 사용)
     matches = re.findall(r'(\S+(?:동|읍|면))', asset_name)
     if not matches:
         print(f"  ⚠ 동명 추출 실패: '{asset_name}'")
         return {}
-
     dong = matches[-1]
     return {"lawd_cd": lawd_cd, "dong": dong}
 
 
 # ─── 자산보유현황 DB 조회 ──────────────────────────────────────────────────────
 def get_real_estate_assets():
-    """자산보유현황 DB에서 '부동산' 분류 자산 전체 자동 조회"""
     resp = notion_request(
         "POST",
         f"https://api.notion.com/v1/databases/{DB_ASSET_STATUS}/query",
@@ -158,10 +131,8 @@ def get_real_estate_assets():
             }
         }
     )
-    results = resp.get("results", [])
     assets = []
-
-    for page in results:
+    for page in resp.get("results", []):
         props = page["properties"]
 
         def num(key):
@@ -169,8 +140,7 @@ def get_real_estate_assets():
             return v if v is not None else 0
 
         title_items = props.get("자산명", {}).get("title", [])
-        asset_name = title_items[0]["text"]["content"] if title_items else ""
-
+        asset_name  = title_items[0]["text"]["content"] if title_items else ""
         if not asset_name:
             continue
 
@@ -181,7 +151,6 @@ def get_real_estate_assets():
 
         apt_items = props.get("아파트명", {}).get("rich_text", [])
         apt_name  = apt_items[0]["text"]["content"] if apt_items else ""
-
         bldg_type = props.get("건물유형", {}).get("select", {}).get("name", "아파트")
 
         assets.append({
@@ -199,33 +168,43 @@ def get_real_estate_assets():
 
 def get_prev_eval(asset_name, run_date):
     """
-    자산평가 결과 DB에서 해당 자산의 직전 평가액 조회
-    - run_date(실행일) 미만 데이터만 참조 → 당일 재실행 시 당일값 오염 방지
-    - 이력 없으면 0.0 반환
+    직전 평가액 조회
+    - 평가일자는 Title 타입 → rich_text contains로 전체 조회 후 Python에서 날짜 비교
+    - run_date 미만 데이터 중 가장 최근 값 반환
+    - 실패 시 0.0 반환
     """
-    resp = notion_request(
-        "POST",
-        f"https://api.notion.com/v1/databases/{DB_EVAL_RESULT}/query",
-        json={
-            "filter": {
-                "and": [
-                    {"property": "자산명",   "rich_text": {"contains": asset_name}},
-                    {"property": "평가일자", "title":     {"less_than": run_date}},
-                ]
-            },
-            "sorts": [{"property": "평가일자", "direction": "descending"}],
-            "page_size": 1
-        }
-    )
-    results = resp.get("results", [])
-    if not results:
+    try:
+        resp = notion_request(
+            "POST",
+            f"https://api.notion.com/v1/databases/{DB_EVAL_RESULT}/query",
+            json={
+                "filter": {
+                    "and": [
+                        {"property": "자산명",   "rich_text": {"equals": asset_name}},
+                        {"property": "자산분류", "select":    {"equals": "부동산"}},
+                    ]
+                },
+                "sorts": [{"property": "평가일자", "direction": "descending"}],
+                "page_size": 10,
+            }
+        )
+        for page in resp.get("results", []):
+            props    = page["properties"]
+            # 평가일자는 Title → title 배열에서 텍스트 추출
+            title_arr   = props.get("평가일자", {}).get("title", [])
+            stored_date = title_arr[0]["plain_text"].strip() if title_arr else ""
+            # run_date 미만인 것만 사용
+            if stored_date and stored_date < run_date:
+                val = props.get("평가액", {}).get("number")
+                return float(val) if val is not None else 0.0
         return 0.0
-    return results[0]["properties"].get("평가액", {}).get("number") or 0.0
+    except Exception as e:
+        print(f"  ⚠ 직전평가액 조회 실패 (무시): {e}")
+        return 0.0
 
 
 # ─── 국토교통부 API ───────────────────────────────────────────────────────────
 def fetch_apt_trades(lawd_cd, deal_ymd, bldg_type="아파트"):
-    """특정 지역/년월의 아파트/오피스텔 매매 실거래가 XML 조회"""
     params = {
         "serviceKey": PUBLIC_DATA_API_KEY,
         "LAWD_CD":    lawd_cd,
@@ -258,17 +237,14 @@ def fetch_apt_trades(lawd_cd, deal_ymd, bldg_type="아파트"):
         def txt(tag):
             v = item.findtext(tag, "")
             return v.strip() if v else ""
-
         try:
             area_str  = txt("excluUseAr")
             price_str = txt("dealAmount").replace(",", "")
             year      = txt("dealYear")
             month     = txt("dealMonth").zfill(2)
             day       = txt("dealDay").zfill(2)
-
             if not (area_str and price_str and year and month and day):
                 continue
-
             trades.append({
                 "dong":      txt("umdNm"),
                 "apt_name":  txt("aptNm"),
@@ -279,17 +255,14 @@ def fetch_apt_trades(lawd_cd, deal_ymd, bldg_type="아파트"):
             })
         except (ValueError, TypeError):
             continue
-
     return trades
 
 
 def get_recent_trades(lawd_cd, dong, area, recent_count, apt_name="", bldg_type="아파트"):
-    """동 + 면적 + 아파트명 조건으로 필터링한 최근 N건 실거래 반환"""
     matched = []
     for ym in get_year_months(SEARCH_MONTHS):
         print(f"  📅 {ym} 조회 중...")
         trades = fetch_apt_trades(lawd_cd, ym, bldg_type)
-
         for t in trades:
             if dong not in t["dong"]:
                 continue
@@ -298,19 +271,15 @@ def get_recent_trades(lawd_cd, dong, area, recent_count, apt_name="", bldg_type=
             if apt_name and apt_name not in t["apt_name"]:
                 continue
             matched.append(t)
-
         matched.sort(key=lambda x: x["deal_date"], reverse=True)
         if len(matched) >= recent_count:
             break
-
         time.sleep(0.3)
-
     return matched[:recent_count]
 
 
 # ─── 노션 저장 ────────────────────────────────────────────────────────────────
 def save_to_real_estate_db(asset_name, trades, avg_price, run_date):
-    """부동산 실거래가 DB 저장 (run_date 기준 upsert)"""
     resp = notion_request(
         "POST",
         f"https://api.notion.com/v1/databases/{DB_REAL_ESTATE}/query",
@@ -343,41 +312,37 @@ def save_to_real_estate_db(asset_name, trades, avg_price, run_date):
     }
 
     if existing:
-        notion_request(
-            "PATCH",
+        notion_request("PATCH",
             f"https://api.notion.com/v1/pages/{existing[0]['id']}",
-            json={"properties": properties}
-        )
+            json={"properties": properties})
         print(f"  ✅ 부동산 실거래가 DB 업데이트: {asset_name}")
     else:
-        notion_request(
-            "POST",
-            "https://api.notion.com/v1/pages",
-            json={"parent": {"database_id": DB_REAL_ESTATE}, "properties": properties}
-        )
+        notion_request("POST", "https://api.notion.com/v1/pages",
+            json={"parent": {"database_id": DB_REAL_ESTATE}, "properties": properties})
         print(f"  ✅ 부동산 실거래가 DB 저장: {asset_name}")
-
     time.sleep(0.4)
 
 
 def save_to_eval_result_db(asset, current_price, prev_eval, run_date):
     """
     자산평가 결과 DB 저장
-    - 평가일자 = run_date (실행일 KST 기준 통일)
-    - current_price=None 이면 현재가/평가액 공란으로 행 생성
+    - None 값은 properties에서 아예 제외 (노션 API 400 방지)
+    - 평가일자: Title 타입
+    - 자산명: rich_text 타입
     """
     asset_name = asset["asset_name"]
     quantity   = asset["quantity"] if asset["quantity"] > 0 else 1
     cost       = asset["unit_price"] * quantity
     eval_amt   = current_price * quantity if current_price is not None else None
 
+    # 중복 체크 (평가일자 Title equals는 동작함)
     resp = notion_request(
         "POST",
         f"https://api.notion.com/v1/databases/{DB_EVAL_RESULT}/query",
         json={
             "filter": {
                 "and": [
-                    {"property": "평가일자", "title":     {"equals": run_date}},
+                    {"property": "평가일자", "rich_text": {"equals": run_date}},
                     {"property": "자산명",   "rich_text": {"equals": asset_name}},
                 ]
             }
@@ -385,50 +350,48 @@ def save_to_eval_result_db(asset, current_price, prev_eval, run_date):
     )
     existing = resp.get("results", [])
 
+    # 기본 properties (None 없는 것만)
     properties = {
-        "평가일자":   {"title":    [{"text": {"content": run_date}}]},
-        "자산명":     {"rich_text": [{"text": {"content": asset_name}}]},
-        "자산분류":   {"select":   {"name": "부동산"}},
-        "수량":       {"number": quantity},
-        "금액":       {"number": round(cost)},
-        "현재가":     {"number": round(current_price) if current_price is not None else None},
-        "평가액":     {"number": round(eval_amt)      if eval_amt      is not None else None},
-        "직전평가액": {"number": round(prev_eval)     if prev_eval > 0 else None},
+        "평가일자":  {"title":    [{"text": {"content": run_date}}]},
+        "자산명":    {"rich_text": [{"text": {"content": asset_name}}]},
+        "자산분류":  {"select":   {"name": "부동산"}},
+        "수량":      {"number": quantity},
+        "금액":      {"number": round(cost)},
     }
 
+    # None이면 아예 넣지 않음
+    if current_price is not None:
+        properties["현재가"] = {"number": round(current_price)}
+    if eval_amt is not None:
+        properties["평가액"] = {"number": round(eval_amt)}
+    if prev_eval and prev_eval > 0:
+        properties["직전평가액"] = {"number": round(prev_eval)}
+
     if existing:
-        notion_request(
-            "PATCH",
+        notion_request("PATCH",
             f"https://api.notion.com/v1/pages/{existing[0]['id']}",
-            json={"properties": properties}
-        )
+            json={"properties": properties})
         eval_str = f"{eval_amt:,.0f}원" if eval_amt is not None else "공란"
         print(f"  ✅ 자산평가 결과 DB 업데이트: {asset_name} | 평가액 {eval_str}")
     else:
-        notion_request(
-            "POST",
-            "https://api.notion.com/v1/pages",
-            json={"parent": {"database_id": DB_EVAL_RESULT}, "properties": properties}
-        )
+        notion_request("POST", "https://api.notion.com/v1/pages",
+            json={"parent": {"database_id": DB_EVAL_RESULT}, "properties": properties})
         eval_str = f"{eval_amt:,.0f}원" if eval_amt is not None else "공란(실거래 데이터 없음)"
         print(f"  ✅ 자산평가 결과 DB 저장: {asset_name} | 평가액 {eval_str}")
-
     time.sleep(0.4)
 
 
 # ─── 메인 ─────────────────────────────────────────────────────────────────────
 def main():
-    run_date = datetime.now().strftime("%Y-%m-%d")   # 실행일 = 평가일자 기준 (토요일)
+    run_date = datetime.now().strftime("%Y-%m-%d")
 
     print("=" * 60)
     print("🏠 Phase 3: 부동산 실거래가 자동화 시작")
-    print(f"   실행 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S KST')}  →  평가일자: {run_date}")
+    print(f"   평가일자: {run_date}")
     print("=" * 60)
 
-    # 자산보유현황 DB에서 부동산 목록 자동 조회
     print("\n[사전] 자산보유현황 DB에서 부동산 목록 조회")
     assets = get_real_estate_assets()
-
     if not assets:
         print("  ⚠ 처리할 부동산 자산 없음 — 종료")
         return
@@ -439,7 +402,6 @@ def main():
         print(f"\n{'=' * 50}")
         print(f"📌 대상: {asset_name} | 전용 {area}㎡")
 
-        # 주소에서 법정동코드·동명 자동 추출
         addr = parse_address(asset_name)
         if not addr:
             print(f"  ⚠ 주소 파싱 실패 — 건너뜀")
@@ -450,7 +412,6 @@ def main():
         apt_name = asset["apt_name"]
         print(f"   법정동코드: {lawd_cd} | 동명: {dong} | {asset['bldg_type']} | 아파트명: {apt_name if apt_name else '(미입력)'}")
 
-        # [1/4] 실거래가 API 조회
         print(f"\n[1/4] 실거래가 API 조회 (최근 {RECENT_COUNT}건, ±{AREA_MARGIN}㎡)")
         trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT, asset["apt_name"], asset["bldg_type"])
 
@@ -469,16 +430,14 @@ def main():
             avg_ck = (avg_price % 100_000_000) // 10_000
             print(f"\n[2/4] 평균 실거래가: {avg_uk:.0f}억 {avg_ck:,.0f}만원")
 
-        # [3/4] 부동산 실거래가 DB 저장 (실거래 있을 때만)
         if trades and avg_price is not None:
             print(f"\n[3/4] 부동산 실거래가 DB 저장")
             save_to_real_estate_db(asset_name, trades, avg_price, run_date)
         else:
             print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (데이터 없음)")
 
-        # [4/4] 자산평가 결과 DB 저장 (항상 실행 - 공란이라도 행 생성)
         print(f"\n[4/4] 자산평가 결과 DB 저장")
-        prev_eval = get_prev_eval(asset_name, run_date)   # run_date 미만만 조회
+        prev_eval = get_prev_eval(asset_name, run_date)
         save_to_eval_result_db(asset, avg_price, prev_eval, run_date)
 
     print("\n" + "=" * 60)
