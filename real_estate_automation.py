@@ -114,11 +114,17 @@ def parse_address(asset_name):
     예) "충청남도 천안시 동남구 두정동" → lawd_cd="44130", dong="두정동"
     """
     lawd_cd = None
-    # 더 구체적인(긴) 키를 먼저 매칭 (예: "동남구"가 "천안시"보다 우선)
-    for sigungu, code in sorted(LAWD_CD_MAP.items(), key=lambda x: -len(x[0])):
-        if sigungu in asset_name:
+    # 1순위: "구" 단위 키 먼저 매칭 (동남구, 서북구 등 시보다 구체적)
+    for sigungu, code in LAWD_CD_MAP.items():
+        if sigungu.endswith("구") and sigungu in asset_name:
             lawd_cd = code
             break
+    # 2순위: 구 단위 없으면 시/군 단위로 매칭
+    if not lawd_cd:
+        for sigungu, code in LAWD_CD_MAP.items():
+            if not sigungu.endswith("구") and sigungu in asset_name:
+                lawd_cd = code
+                break
 
     if not lawd_cd:
         print(f"  ⚠ 법정동코드 매핑 실패: '{asset_name}' — LAWD_CD_MAP에 시군구 추가 필요")
