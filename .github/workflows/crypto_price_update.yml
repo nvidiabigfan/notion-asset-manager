@@ -1,0 +1,36 @@
+name: Crypto Price Update
+
+on:
+  # Phase 3 (real_estate_update) 완료 후 자동 트리거
+  workflow_run:
+    workflows: ["Real Estate Price Update"]
+    types:
+      - completed
+
+  # 수동 실행용
+  workflow_dispatch:
+
+jobs:
+  update-crypto:
+    runs-on: ubuntu-latest
+    # Phase 3 성공 시에만 실행 (실패 시 스킵)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run crypto price automation
+        env:
+          NOTION_TOKEN:      ${{ secrets.NOTION_TOKEN }}
+          DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
+          DB_EVAL_RESULT:    ${{ secrets.DB_EVAL_RESULT }}
+        run: python crypto_price_automation.py
