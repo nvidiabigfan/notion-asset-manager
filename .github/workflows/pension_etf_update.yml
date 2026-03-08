@@ -1,4 +1,4 @@
-name: Pension ETF Price Update
+name: 5. 연금
 
 on:
   schedule:
