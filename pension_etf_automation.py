@@ -2,15 +2,20 @@
 pension_etf_automation.py
 Phase 6 - 연금ETF/펀드 현재가 조회 및 자산평가결과 DB 저장
 
+[변경이력]
+  v2 - KOFIA freesis API → dis.kofia.or.kr XML API 교체
+       pykrx get_fund_ohlcv_by_date (미존재 함수) 제거
+       빈 응답/파싱 오류 방어 로직 강화
+
 [티커/코드 입력 규칙]
   ETF  (거래소 상장) : 숫자 6자리   예) 360750, 465580
   펀드 (비상장 수익증권): A로 시작  예) A0040Y0, A441800
 
 [현재가 조회 방법]
-  ETF  → 야후파이낸스  (ticker.KS) - GitHub Actions 환경에서 정상 작동
-  펀드 → KOFIA freesis.kofia.or.kr POST API (공공기관, IP 차단 없음, API키 불필요)
+  ETF  → 야후파이낸스 (ticker.KS)
+  펀드 → dis.kofia.or.kr XML POST API
          └ 기준가(NAV): 전일 장 마감 기준 T+1 공시
-         └ 실패시 pykrx 라이브러리로 fallback
+         └ 실패시 fund.kofia.or.kr REST API fallback
 
 [네이버 금융 API 사용 불가 이유]
   GitHub Actions IP(Azure 미국 대역)를 네이버가 봇으로 차단함
@@ -20,6 +25,7 @@ import os
 import re
 import time
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
 # ── 환경변수 ──────────────────────────────────────────────
@@ -35,6 +41,18 @@ HEADERS = {
 
 KST = timezone(timedelta(hours=9))
 
+# dis.kofia.or.kr XML API 설정
+KOFIA_DIS_URL = "https://dis.kofia.or.kr/proframeWeb/XMLSERVICES/"
+KOFIA_DIS_HEADERS = {
+    "Content-Type": "text/xml; charset=utf-8",
+    "User-Agent":   "Mozilla/5.0",
+    "Referer":      "https://dis.kofia.or.kr/",
+    "Origin":       "https://dis.kofia.or.kr",
+}
+
+# fund.kofia.or.kr fallback 설정
+KOFIA_FUND_URL = "https://www.kofia.or.kr/biz/fund/sttus/fundNetAssetPriceList.do"
+
 
 def get_run_date() -> str:
     return datetime.now(KST).strftime("%Y-%m-%d")
@@ -43,6 +61,19 @@ def get_run_date() -> str:
 def is_fund_code(ticker: str) -> bool:
     """A로 시작하는 7자리 → 비상장 펀드 (수익증권 표준코드)"""
     return bool(re.match(r'^[Aa][0-9A-Za-z]{6}$', ticker))
+
+
+def get_recent_business_days(n: int = 7) -> list[str]:
+    """오늘부터 최대 n일 전까지 영업일(평일) 목록 반환 (YYYYMMDD 형식)"""
+    kst_now = datetime.now(KST)
+    result = []
+    for days_ago in range(n * 2):  # 여유있게 탐색
+        d = kst_now - timedelta(days=days_ago)
+        if d.weekday() < 5:  # 월~금
+            result.append(d.strftime("%Y%m%d"))
+        if len(result) >= n:
+            break
+    return result
 
 
 # ── 1. 자산보유현황 DB에서 연금 항목 조회 ────────────────
@@ -117,91 +148,175 @@ def fetch_yahoo_price(ticker: str) -> float | None:
     return None
 
 
-# ── 2-B. KOFIA freesis API (펀드, A코드) ─────────────────
-def fetch_kofia_price(ticker: str) -> float | None:
+# ── 2-B. KOFIA dis XML API (펀드, A코드) — 메인 ──────────
+def fetch_kofia_dis_price(ticker: str) -> float | None:
     """
-    금융투자협회 종합통계 포털 비공식 API
-    URL: https://freesis.kofia.or.kr/gw/fundPub/FundInfoService/getStdPrcByStdCd
-    방식: POST, Content-Type: application/json
-    요청: {"standardCd": "A0040Y0", "standardDt": "20260307"}
-    응답: {"standardPrice": "1234.56", "standardDt": "20260307", ...}
+    금융투자협회 공시시스템 XML API
+    URL : https://dis.kofia.or.kr/proframeWeb/XMLSERVICES/
+    방식: POST, Content-Type: text/xml
+    서비스: COMPCode008 / fundInfoList  (펀드 기준가 조회)
 
-    - 공공기관 서버 → GitHub Actions IP 차단 없음
-    - API 키 불필요
-    - 기준일자를 최근 영업일로 자동 탐색 (최대 7일 전까지)
+    응답 예시:
+      <standardPrices>
+        <standardPrice>
+          <standardCd>A0040Y0</standardCd>
+          <standardDt>20260307</standardDt>
+          <uOriginalAmt>1000.00</uOriginalAmt>  ← 기준가(NAV)
+        </standardPrice>
+      </standardPrices>
     """
-    base_url = "https://freesis.kofia.or.kr/gw/fundPub/FundInfoService/getStdPrcByStdCd"
-    kst_now  = datetime.now(KST)
+    business_days = get_recent_business_days(7)
 
-    # 최근 영업일 탐색 (오늘부터 최대 7일 전까지)
-    for days_ago in range(7):
-        target_dt = kst_now - timedelta(days=days_ago)
-        # 주말 건너뜀
-        if target_dt.weekday() >= 5:
-            continue
-        date_str = target_dt.strftime("%Y%m%d")
+    for date_str in business_days:
+        xml_body = f"""<?xml version="1.0" encoding="utf-8"?>
+<message>
+  <proframeHeader>
+    <pfmAppName>FS-DIS</pfmAppName>
+    <pfmSvcName>COMPCode008</pfmSvcName>
+    <pfmFnName>selFundPrc</pfmFnName>
+  </proframeHeader>
+  <parameter>
+    <standardCd>{ticker.upper()}</standardCd>
+    <standardDt>{date_str}</standardDt>
+    <reqCnt>1</reqCnt>
+  </parameter>
+</message>"""
 
         try:
-            payload = {"standardCd": ticker.upper(), "standardDt": date_str}
             res = requests.post(
-                base_url,
-                json=payload,
+                KOFIA_DIS_URL,
+                data=xml_body.encode("utf-8"),
+                headers=KOFIA_DIS_HEADERS,
+                timeout=10
+            )
+            res.raise_for_status()
+
+            # ✅ 빈 응답 방어
+            body = res.text.strip()
+            if not body:
+                print(f"[KOFIA-DIS] ⚠️  {ticker} 빈 응답 ({date_str}) - 다음 날짜 시도")
+                time.sleep(0.3)
+                continue
+
+            # XML 파싱
+            root = ET.fromstring(body)
+
+            # 기준가 필드 탐색 (uOriginalAmt 또는 standardPrice)
+            price_node = (
+                root.find(".//uOriginalAmt")
+                or root.find(".//standardPrice")
+                or root.find(".//nav")
+                or root.find(".//stdPrc")
+            )
+
+            if price_node is not None and price_node.text:
+                price_text = price_node.text.replace(",", "").strip()
+                if price_text and price_text not in ("0", "0.00"):
+                    price = float(price_text)
+                    print(f"[KOFIA-DIS] ✅ {ticker} 기준가({date_str}) → {price:,.2f}원")
+                    return price
+
+            # 에러 메시지 여부 확인
+            err_node = root.find(".//errorMessage") or root.find(".//error")
+            if err_node is not None:
+                print(f"[KOFIA-DIS] ❌ {ticker} API 오류 ({date_str}): {err_node.text}")
+                return None
+
+            print(f"[KOFIA-DIS] ⚠️  {ticker} 기준가 필드 없음 ({date_str}) - 다음 날짜 시도")
+
+        except ET.ParseError as e:
+            print(f"[KOFIA-DIS] ⚠️  {ticker} XML 파싱 오류 ({date_str}): {e}")
+            # XML 파싱 실패시 응답 앞부분 출력 (디버깅용)
+            try:
+                preview = res.text[:200] if res.text else "(빈 응답)"
+                print(f"[KOFIA-DIS]    응답 미리보기: {preview}")
+            except Exception:
+                pass
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response else "?"
+            if status == 404:
+                print(f"[KOFIA-DIS] ❌ {ticker} 펀드코드 미존재")
+                return None
+            print(f"[KOFIA-DIS] ⚠️  {ticker} HTTP {status} ({date_str})")
+        except Exception as e:
+            print(f"[KOFIA-DIS] ⚠️  {ticker} 오류 ({date_str}): {e}")
+
+        time.sleep(0.3)
+
+    # dis API 실패 → fund.kofia.or.kr fallback
+    print(f"[KOFIA-DIS] ⚠️  {ticker} 모든 날짜 실패 → fund.kofia.or.kr fallback 시도")
+    return fetch_kofia_fund_price(ticker)
+
+
+# ── 2-C. fund.kofia.or.kr fallback ───────────────────────
+def fetch_kofia_fund_price(ticker: str) -> float | None:
+    """
+    금융투자협회 펀드공시 포털 fallback
+    URL: https://www.kofia.or.kr/biz/fund/sttus/fundNetAssetPriceList.do
+    방식: GET, 파라미터로 펀드코드 전달
+    """
+    business_days = get_recent_business_days(5)
+
+    for date_str in business_days:
+        params = {
+            "standardCd": ticker.upper(),
+            "standardDt": date_str,
+            "pageIndex":  "1",
+            "pageSize":   "1",
+        }
+        try:
+            res = requests.get(
+                KOFIA_FUND_URL,
+                params=params,
                 headers={
-                    "Content-Type": "application/json",
                     "User-Agent": "Mozilla/5.0",
-                    "Referer": "https://freesis.kofia.or.kr/",
+                    "Referer":    "https://www.kofia.or.kr/",
                 },
                 timeout=10
             )
             res.raise_for_status()
-            data = res.json()
 
-            # 응답 구조 탐색
-            price_raw = (
-                data.get("standardPrice")
-                or data.get("nav")
-                or data.get("stdPrc")
-                or (data.get("output", {}) or {}).get("standardPrice")
-            )
-            if price_raw:
-                price = float(str(price_raw).replace(",", "").strip())
-                print(f"[KOFIA] {ticker} 기준가({date_str}) → {price:,.2f}원")
-                return price
+            body = res.text.strip()
+            if not body:
+                continue
 
-        except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response else "?"
-            if status == 404:
-                print(f"[KOFIA] ❌ {ticker} 펀드코드 미존재 ({date_str})")
-                return None
-            print(f"[KOFIA] ⚠️  {ticker} HTTP {status} ({date_str})")
+            # JSON 응답 시도
+            try:
+                data = res.json()
+                items = (
+                    data.get("list")
+                    or data.get("data")
+                    or data.get("result", {}).get("list", [])
+                    or []
+                )
+                if items:
+                    price_raw = (
+                        items[0].get("standardPrice")
+                        or items[0].get("nav")
+                        or items[0].get("stdPrc")
+                    )
+                    if price_raw:
+                        price = float(str(price_raw).replace(",", "").strip())
+                        print(f"[KOFIA-Fund] ✅ {ticker} 기준가({date_str}) → {price:,.2f}원")
+                        return price
+            except ValueError:
+                pass  # JSON 아님 - XML 시도
+                try:
+                    root = ET.fromstring(body)
+                    price_node = root.find(".//standardPrice") or root.find(".//nav")
+                    if price_node is not None and price_node.text:
+                        price = float(price_node.text.replace(",", "").strip())
+                        print(f"[KOFIA-Fund] ✅ {ticker} 기준가({date_str}) → {price:,.2f}원")
+                        return price
+                except ET.ParseError:
+                    pass
+
         except Exception as e:
-            print(f"[KOFIA] ⚠️  {ticker} 오류 ({date_str}): {e}")
+            print(f"[KOFIA-Fund] ⚠️  {ticker} 오류 ({date_str}): {e}")
 
         time.sleep(0.3)
 
-    # KOFIA 실패 시 pykrx fallback
-    return fetch_pykrx_fund_price(ticker)
-
-
-def fetch_pykrx_fund_price(ticker: str) -> float | None:
-    """
-    pykrx 라이브러리 fallback (KRX 공식 데이터)
-    주의: pykrx는 A코드 펀드를 지원하지 않을 수 있음
-    """
-    try:
-        from pykrx import stock
-        kst_now = datetime.now(KST)
-        # 최근 5영업일 범위로 조회
-        to_date   = kst_now.strftime("%Y%m%d")
-        from_date = (kst_now - timedelta(days=10)).strftime("%Y%m%d")
-
-        df = stock.get_fund_ohlcv_by_date(from_date, to_date, ticker)
-        if df is not None and not df.empty:
-            price = float(df["종가"].iloc[-1])
-            print(f"[pykrx] {ticker} 기준가 → {price:,.2f}원")
-            return price
-    except Exception as e:
-        print(f"[pykrx] ⚠️  {ticker} 조회 실패: {e}")
+    print(f"[KOFIA-Fund] ❌ {ticker} 모든 fallback 실패 - 가격 없음")
     return None
 
 
@@ -209,7 +324,7 @@ def fetch_pykrx_fund_price(ticker: str) -> float | None:
 def fetch_price(holding: dict) -> float | None:
     ticker = holding["ticker"]
     if holding["is_fund"]:
-        price = fetch_kofia_price(ticker)
+        price = fetch_kofia_dis_price(ticker)
     else:
         price = fetch_yahoo_price(ticker)
         if price:
