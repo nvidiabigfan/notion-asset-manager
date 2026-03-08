@@ -1,4 +1,4 @@
-name: Weekly Asset Summary Update
+name: 6. 요약
 
 on:
   # Phase 5 (crypto_price_update) 완료 후 자동 트리거
