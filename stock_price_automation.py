@@ -183,7 +183,7 @@ def get_holdings() -> list:
     holdings = []
     for row in rows:
         category = get_prop(row, "자산분류")
-        if category not in ("한국주식", "미국주식"):
+        if category not in ("한국주식", "미국주식", "연금"):
             continue
 
         name           = get_prop(row, "자산명")
@@ -195,8 +195,8 @@ def get_holdings() -> list:
             print(f"  [SKIP] {name} — 티커/코드 미입력")
             continue
 
-        if category == "한국주식" and not ticker.upper().endswith(".KS"):
-            ticker = ticker + ".KS"
+if category in ("한국주식", "연금") and not ticker.upper().endswith(".KS"):
+    ticker = ticker + ".KS"
 
         holdings.append({
             "name":           name,
