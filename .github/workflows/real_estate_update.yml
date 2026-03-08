@@ -1,4 +1,4 @@
-name: Phase 3 - 부동산 실거래가 업데이트
+name: 3. 부동산
 
 on:
   schedule:
