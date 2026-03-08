@@ -1,4 +1,4 @@
-name: 환율 자동 업데이트 (매주 토요일 12:00 KST)
+name: 1. 환율
 
 on:
   schedule:
