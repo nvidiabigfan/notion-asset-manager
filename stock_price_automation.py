@@ -16,6 +16,11 @@ Phase 2: 주식 시세 자동화
   - 야후 파이낸스가 반환하는 실제 거래일(금요일 등)이 아닌
     스크립트 실행일(KST 토요일)을 평가일자로 통일 저장
   - 실제 참조한 거래일은 로그에만 출력
+
+■ 자산분류별 처리
+  - 한국주식: 티커에 .KS 자동 추가 후 야후 파이낸스 조회 (KRW 그대로)
+  - 미국주식: 야후 파이낸스 조회 후 환율 적용하여 KRW 환산
+  - 연금:     한국주식과 동일하게 .KS 자동 추가 후 야후 파이낸스 조회 (KRW 그대로)
 """
 
 import os
@@ -44,6 +49,9 @@ HEADERS = {
 }
 
 NOTION_CALL_INTERVAL = 0.4  # 초당 3회 제한 대응
+
+# 티커에 .KS 자동 추가 대상 분류
+KS_CATEGORIES = ("한국주식", "연금")
 
 
 # ── Notion API 헬퍼 ───────────────────────────────────────────────────────────
@@ -183,6 +191,7 @@ def get_holdings() -> list:
     holdings = []
     for row in rows:
         category = get_prop(row, "자산분류")
+        # ↓ 수정: 연금 카테고리 추가
         if category not in ("한국주식", "미국주식", "연금"):
             continue
 
@@ -195,8 +204,9 @@ def get_holdings() -> list:
             print(f"  [SKIP] {name} — 티커/코드 미입력")
             continue
 
-if category in ("한국주식", "연금") and not ticker.upper().endswith(".KS"):
-    ticker = ticker + ".KS"
+        # ↓ 수정: 한국주식 + 연금 모두 .KS 자동 추가
+        if category in KS_CATEGORIES and not ticker.upper().endswith(".KS"):
+            ticker = ticker + ".KS"
 
         holdings.append({
             "name":           name,
@@ -244,7 +254,7 @@ def upsert_eval_result(
     eval_amount_krw:  float,
     purchase_amount:  float | None,
     prev_eval_amount: float | None,
-    run_date:         str,           # ← 실행일(KST 토요일) 기준으로 통일
+    run_date:         str,
 ) -> None:
     """
     자산평가 결과 DB에 실행일 기준 레코드 UPSERT
@@ -286,7 +296,7 @@ def upsert_eval_result(
 
 # ── 메인 ──────────────────────────────────────────────────────────────────────
 def main():
-    run_date = datetime.now(KST).strftime("%Y-%m-%d")   # 실행일 = 평가일자 기준 (토요일)
+    run_date = datetime.now(KST).strftime("%Y-%m-%d")
     print(f"\n{'='*55}")
     print(f"  주식 시세 자동화 실행 — {run_date} (KST)")
     print(f"{'='*55}")
@@ -324,9 +334,8 @@ def main():
 
         price           = stock["price"]
         currency        = stock["currency"]
-        last_trade_date = stock["last_trade_date"]  # 로그 출력용
+        last_trade_date = stock["last_trade_date"]
 
-        # 평가일자는 run_date(실행일)로 통일, 실제 거래일은 로그에만 표시
         print(f"     실제거래일: {last_trade_date}  →  평가일자: {run_date} (실행일 기준 통일)")
         print(f"     종가: {price} {currency}  (시장상태: {stock['market_state']})")
 
@@ -344,7 +353,6 @@ def main():
         eval_amount = unit_price_krw * qty
         print(f"     평가금액: {eval_amount:,.0f}원 ({qty}주)")
 
-        # 직전평가액 조회 (run_date 기준 이전 데이터)
         prev_eval = get_prev_eval_amount(name, run_date)
 
         upsert_eval_result(
@@ -355,7 +363,7 @@ def main():
             eval_amount_krw=eval_amount,
             purchase_amount=round(buy_eval) if buy_eval is not None else None,
             prev_eval_amount=prev_eval,
-            run_date=run_date,           # ← last_trade_date 대신 run_date 사용
+            run_date=run_date,
         )
 
         summary.append({
