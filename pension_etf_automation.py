@@ -1,35 +1,38 @@
 """
 pension_etf_automation.py
-Phase 6 v3 - 연금ETF/펀드 현재가 조회 및 자산평가결과 DB 저장
+Phase 6 v5 - 연금ETF/펀드 현재가 조회 및 자산평가결과 DB 저장
 
 [변경이력]
-  v3 - KOFIA API 완전 재설계
-       dis.kofia.or.kr (서비스명 오류로 잘린 XML 반환) 제거
-       → 검증된 3단계 fallback 구조
-         1순위: KOFIA 공식 selFundStdPrc (form POST)
-         2순위: KRX 정보데이터시스템 (MDCSTAT04401)
-         3순위: 금융감독원 efund 포털
+  v5 - v4의 엔드포인트 오류 수정
+       주식 API(getStockPriceInfo) → 수익증권 API(getStocksecuritiesPriceInfo)
+       GitHub Actions 정상 작동 확인된 apis.data.go.kr 기반 유지
+       ISIN 탐색 로직 강화 (itmsNm 포함 풀스캔 fallback 추가)
 
-[티커/코드 입력 규칙]
-  ETF  (거래소 상장) : 숫자 6자리   예) 360750, 465580
-  펀드 (비상장 수익증권): A로 시작  예) A0040Y0, A441800
+[공공데이터포털 API 구조 - 금융위원회_주식시세정보 (15094808)]
+  ① 주식시세    : /GetStockSecuritiesInfoService/getStockPriceInfo
+  ② 수익증권시세: /GetStockSecuritiesInfoService/getStocksecuritiesPriceInfo  ← 펀드용
+  ③ ETF시세     : /GetSecuritiesProductInfoService/getETFPriceInfo (별도 데이터셋)
 
-[현재가 조회 방법]
-  ETF  → 야후파이낸스 (ticker.KS)
-  펀드 → 3단계 fallback chain (KOFIA → KRX → FSS)
+[수익증권(펀드) ISIN 규칙]
+  표준코드  → ISIN 변환: KR5 + 표준코드(7자) + 숫자체크디지트(1~3자리)
+  예) A0040Y0  → KR5A0040Y008
+  ※ 마지막 체크디지트는 펀드마다 다를 수 있으므로 복수 시도 필요
+
+[데이터 갱신]
+  T+1 영업일 오후 1시 이후 / 토요일 실행 시 금요일 기준가 조회
 """
 
 import os
 import re
 import time
 import requests
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
 # ── 환경변수 ──────────────────────────────────────────────
-NOTION_TOKEN      = os.environ["NOTION_TOKEN"]
-DB_ASSET_HOLDINGS = os.environ["DB_ASSET_HOLDINGS"]
-DB_EVAL_RESULT    = os.environ["DB_EVAL_RESULT"]
+NOTION_TOKEN         = os.environ["NOTION_TOKEN"]
+DB_ASSET_HOLDINGS    = os.environ["DB_ASSET_HOLDINGS"]
+DB_EVAL_RESULT       = os.environ["DB_EVAL_RESULT"]
+PUBLIC_DATA_API_KEY  = os.environ["PUBLIC_DATA_API_KEY"]
 
 HEADERS = {
     "Authorization":  f"Bearer {NOTION_TOKEN}",
@@ -38,6 +41,12 @@ HEADERS = {
 }
 
 KST = timezone(timedelta(hours=9))
+
+# 공공데이터포털 기본 URL
+DATA_GO_BASE = "https://apis.data.go.kr/1160100/service"
+
+# 수익증권 ISIN 체크디지트 후보 (펀드마다 다름, 순차 시도)
+ISIN_SUFFIXES = ["008", "009", "000", "001", "010", "002", "003"]
 
 
 def get_run_date() -> str:
@@ -60,6 +69,43 @@ def get_recent_business_days(n: int = 5) -> list[str]:
         if len(result) >= n:
             break
     return result
+
+
+def extract_price_from_response(data: dict) -> float | None:
+    """공공데이터포털 표준 응답 구조에서 종가(clpr) 추출"""
+    try:
+        items = (
+            data.get("response", {})
+                .get("body", {})
+                .get("items", {})
+                .get("item", [])
+        )
+        # 단건 응답은 dict, 복수는 list
+        if isinstance(items, dict):
+            items = [items]
+        if not items:
+            return None
+        item = items[0]
+        # clpr: 종가 (수익증권의 경우 = 기준가 NAV)
+        price_raw = item.get("clpr") or item.get("mkp") or item.get("hipr")
+        if price_raw:
+            price = float(str(price_raw).replace(",", "").strip())
+            if price > 0:
+                return price
+    except Exception:
+        pass
+    return None
+
+
+def get_total_count(data: dict) -> int:
+    try:
+        return int(
+            data.get("response", {})
+                .get("body", {})
+                .get("totalCount", 0)
+        )
+    except Exception:
+        return 0
 
 
 # ── 1. 자산보유현황 DB에서 연금 항목 조회 ────────────────
@@ -134,205 +180,165 @@ def fetch_yahoo_price(ticker: str) -> float | None:
     return None
 
 
-# ══════════════════════════════════════════════════════════
-# 펀드 NAV 조회 — 3단계 fallback chain
-# ══════════════════════════════════════════════════════════
+# ── 2-B. 공공데이터포털 수익증권 시세 (펀드 전용) ─────────
+def fetch_data_go_fund_price(ticker: str) -> float | None:
+    """
+    금융위원회_주식시세정보 > ②수익증권시세조회
+    엔드포인트: getStocksecuritiesPriceInfo  (★주식용 getStockPriceInfo 아님)
 
-def _parse_price_from_response(res: requests.Response) -> float | None:
-    """응답에서 가격 추출 (JSON/XML 자동 판별)"""
-    body = res.text.strip()
-    if not body:
-        return None
+    ISIN 체계:
+      수익증권 ISIN = KR5 + 표준코드(7자) + 체크디지트(3자)
+      체크디지트는 펀드마다 다름 → 008부터 순차 시도
+    """
+    url = f"{DATA_GO_BASE}/GetStockSecuritiesInfoService/getStocksecuritiesPriceInfo"
+    business_days = get_recent_business_days(5)
+    code = ticker.upper()
 
-    # JSON 시도
-    try:
-        data = res.json()
-        if isinstance(data, dict):
-            # 단일값 구조
-            for key in ["standardPrice", "stdPrc", "nav", "basePrc", "BAS_PRC"]:
-                val = data.get(key)
-                if val:
-                    price = float(str(val).replace(",", "").strip())
-                    if price > 0:
+    # ISIN 후보 목록 생성
+    isin_candidates = [f"KR5{code}{sfx}" for sfx in ISIN_SUFFIXES]
+
+    for isin in isin_candidates:
+        for date_str in business_days[:3]:  # ISIN당 최근 3영업일만 시도
+            try:
+                params = {
+                    "serviceKey": PUBLIC_DATA_API_KEY,
+                    "resultType": "json",
+                    "isinCd":     isin,
+                    "basDt":      date_str,
+                    "numOfRows":  "1",
+                    "pageNo":     "1",
+                }
+                res = requests.get(url, params=params, timeout=10)
+                res.raise_for_status()
+
+                if not res.text.strip():
+                    time.sleep(0.2)
+                    continue
+
+                data = res.json()
+                total = get_total_count(data)
+
+                if total > 0:
+                    price = extract_price_from_response(data)
+                    if price:
+                        print(f"[DataGo] ✅ {ticker} (ISIN:{isin}, {date_str}) → {price:,.2f}원")
                         return price
-            # 리스트 구조
-            for list_key in ["list", "items", "output", "OutBlock_1", "result"]:
-                items = data.get(list_key)
-                if isinstance(items, list) and items:
-                    row = items[0]
-                    for key in ["standardPrice", "stdPrc", "nav", "basePrc", "BAS_PRC"]:
-                        val = row.get(key)
-                        if val:
-                            price = float(str(val).replace(",", "").strip())
-                            if price > 0:
-                                return price
-                elif isinstance(items, dict):
-                    for key in ["standardPrice", "stdPrc"]:
-                        val = items.get(key)
-                        if val:
-                            price = float(str(val).replace(",", "").strip())
-                            if price > 0:
-                                return price
-    except (ValueError, TypeError):
-        pass
 
-    # XML 시도
+            except Exception as e:
+                print(f"[DataGo] ⚠️  {ticker} ISIN:{isin} ({date_str}) 오류: {e}")
+            time.sleep(0.2)
+
+    # ISIN 변환 모두 실패 → itmsNm(종목명) 키워드 풀스캔 fallback
+    print(f"[DataGo] ⚠️  {ticker} ISIN 매핑 실패 → 종목명 풀스캔 시도")
+    return fetch_data_go_fund_by_name(ticker, business_days[0])
+
+
+def fetch_data_go_fund_by_name(ticker: str, date_str: str) -> float | None:
+    """
+    ISIN 불명 시: 수익증권 전체 조회 후 표준코드(srtnCd) 매칭
+    numOfRows=1000으로 당일 전체 수익증권을 가져와 표준코드로 필터링
+    """
+    url = f"{DATA_GO_BASE}/GetStockSecuritiesInfoService/getStocksecuritiesPriceInfo"
+    code = ticker.upper()
+
     try:
-        root = ET.fromstring(body)
-        for tag in ["standardPrice", "stdPrc", "nav", "basePrc", "uOriginalAmt"]:
-            node = root.find(f".//{tag}")
-            if node is not None and node.text:
-                price = float(node.text.replace(",", "").strip())
-                if price > 0:
+        params = {
+            "serviceKey": PUBLIC_DATA_API_KEY,
+            "resultType": "json",
+            "basDt":      date_str,
+            "numOfRows":  "2000",
+            "pageNo":     "1",
+        }
+        res = requests.get(url, params=params, timeout=15)
+        res.raise_for_status()
+
+        if not res.text.strip():
+            return None
+
+        data = res.json()
+        items = (
+            data.get("response", {})
+                .get("body", {})
+                .get("items", {})
+                .get("item", [])
+        )
+        if isinstance(items, dict):
+            items = [items]
+
+        for item in items:
+            # srtnCd(단축코드) 또는 isinCd에 표준코드 포함 여부 확인
+            srtn = str(item.get("srtnCd", "")).upper()
+            isin = str(item.get("isinCd", "")).upper()
+            if code in srtn or code in isin:
+                price_raw = item.get("clpr")
+                if price_raw:
+                    price = float(str(price_raw).replace(",", "").strip())
+                    if price > 0:
+                        found_isin = item.get("isinCd", "")
+                        print(f"[DataGo-Scan] ✅ {ticker} 풀스캔 매칭 (ISIN:{found_isin}) → {price:,.2f}원")
+                        return price
+
+        print(f"[DataGo-Scan] ❌ {ticker} 풀스캔에도 매칭 없음 ({date_str})")
+    except Exception as e:
+        print(f"[DataGo-Scan] ⚠️  {ticker} 풀스캔 오류: {e}")
+
+    return None
+
+
+# ── 2-C. 공공데이터포털 ETF 시세 fallback (야후 실패시) ──
+def fetch_data_go_etf_price(ticker: str) -> float | None:
+    """
+    금융위원회_증권상품시세정보 > ETF시세조회
+    엔드포인트: /GetSecuritiesProductInfoService/getETFPriceInfo
+    ETF ISIN: KR7 + 6자리 티커 + 008
+    """
+    isin = f"KR7{ticker}008"
+    business_days = get_recent_business_days(3)
+    url = f"{DATA_GO_BASE}/GetSecuritiesProductInfoService/getETFPriceInfo"
+
+    for date_str in business_days:
+        try:
+            params = {
+                "serviceKey": PUBLIC_DATA_API_KEY,
+                "resultType": "json",
+                "isinCd":     isin,
+                "basDt":      date_str,
+                "numOfRows":  "1",
+            }
+            res = requests.get(url, params=params, timeout=10)
+            res.raise_for_status()
+
+            if not res.text.strip():
+                time.sleep(0.2)
+                continue
+
+            data = res.json()
+            if get_total_count(data) > 0:
+                price = extract_price_from_response(data)
+                if price:
+                    print(f"[DataGo-ETF] ✅ {ticker} ({date_str}) → {price:,.0f}원")
                     return price
-    except ET.ParseError:
-        pass
-
-    return None
-
-
-# ── 2-B-1. KOFIA 공식 API (1순위) ────────────────────────
-def fetch_kofia_price_v1(ticker: str) -> float | None:
-    """
-    금융투자협회 공식 펀드 기준가 API
-    POST https://www.kofia.or.kr/biz/fund/sttus/selFundStdPrc.do
-    """
-    business_days = get_recent_business_days(5)
-    url = "https://www.kofia.or.kr/biz/fund/sttus/selFundStdPrc.do"
-
-    for date_str in business_days:
-        try:
-            res = requests.post(
-                url,
-                data={"standardCd": ticker.upper(), "standardDt": date_str},
-                headers={
-                    "Content-Type":      "application/x-www-form-urlencoded; charset=UTF-8",
-                    "User-Agent":        "Mozilla/5.0",
-                    "Referer":           "https://www.kofia.or.kr/",
-                    "X-Requested-With":  "XMLHttpRequest",
-                },
-                timeout=10
-            )
-            price = _parse_price_from_response(res)
-            if price:
-                print(f"[KOFIA-1] ✅ {ticker} ({date_str}) → {price:,.2f}원")
-                return price
-            print(f"[KOFIA-1] ⚠️  {ticker} 가격 없음 ({date_str})")
         except Exception as e:
-            print(f"[KOFIA-1] ⚠️  {ticker} 오류 ({date_str}): {e}")
-        time.sleep(0.3)
+            print(f"[DataGo-ETF] ⚠️  {ticker} 오류 ({date_str}): {e}")
+        time.sleep(0.2)
 
-    return None
-
-
-# ── 2-B-2. KRX 정보데이터시스템 (2순위) ──────────────────
-def fetch_krx_fund_price(ticker: str) -> float | None:
-    """
-    KRX 정보데이터시스템 펀드 기준가
-    POST https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd
-    bld: dbms/MDC/STAT/standard/MDCSTAT04401
-    """
-    fund_id = ticker.upper().lstrip("A")
-    business_days = get_recent_business_days(5)
-    url = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
-
-    for date_str in business_days:
-        try:
-            res = requests.post(
-                url,
-                data={
-                    "bld":           "dbms/MDC/STAT/standard/MDCSTAT04401",
-                    "fundId":        fund_id,
-                    "trdDd":         date_str,
-                    "share":         "1",
-                    "money":         "1",
-                    "csvxls_isNo":   "false",
-                },
-                headers={
-                    "Content-Type":      "application/x-www-form-urlencoded; charset=UTF-8",
-                    "User-Agent":        "Mozilla/5.0",
-                    "Referer":           "https://data.krx.co.kr/",
-                    "X-Requested-With":  "XMLHttpRequest",
-                },
-                timeout=10
-            )
-            price = _parse_price_from_response(res)
-            if price:
-                print(f"[KRX] ✅ {ticker} ({date_str}) → {price:,.2f}원")
-                return price
-            print(f"[KRX] ⚠️  {ticker} 가격 없음 ({date_str})")
-        except Exception as e:
-            print(f"[KRX] ⚠️  {ticker} 오류 ({date_str}): {e}")
-        time.sleep(0.3)
-
-    return None
-
-
-# ── 2-B-3. 금융감독원 efund (3순위) ──────────────────────
-def fetch_fss_fund_price(ticker: str) -> float | None:
-    """
-    금융감독원 전자공시 펀드 기준가
-    POST https://efund.fss.or.kr/pkt/aio/mnutPriceList.do
-    """
-    business_days = get_recent_business_days(5)
-    url = "https://efund.fss.or.kr/pkt/aio/mnutPriceList.do"
-
-    for date_str in business_days:
-        fmt_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-        try:
-            res = requests.post(
-                url,
-                data={"fundCd": ticker.upper(), "srchDt": fmt_date,
-                      "pageIndex": "1", "pageSize": "1"},
-                headers={
-                    "Content-Type":      "application/x-www-form-urlencoded; charset=UTF-8",
-                    "User-Agent":        "Mozilla/5.0",
-                    "Referer":           "https://efund.fss.or.kr/",
-                    "X-Requested-With":  "XMLHttpRequest",
-                },
-                timeout=10
-            )
-            price = _parse_price_from_response(res)
-            if price:
-                print(f"[FSS] ✅ {ticker} ({date_str}) → {price:,.2f}원")
-                return price
-            print(f"[FSS] ⚠️  {ticker} 가격 없음 ({date_str})")
-        except Exception as e:
-            print(f"[FSS] ⚠️  {ticker} 오류 ({date_str}): {e}")
-        time.sleep(0.3)
-
-    return None
-
-
-# ── 2-B. 펀드 NAV — fallback chain 통합 ──────────────────
-def fetch_kofia_price(ticker: str) -> float | None:
-    price = fetch_kofia_price_v1(ticker)
-    if price:
-        return price
-
-    print(f"[Fallback] {ticker} KOFIA 실패 → KRX 시도")
-    price = fetch_krx_fund_price(ticker)
-    if price:
-        return price
-
-    print(f"[Fallback] {ticker} KRX 실패 → FSS 시도")
-    price = fetch_fss_fund_price(ticker)
-    if price:
-        return price
-
-    print(f"[Fallback] ❌ {ticker} 모든 경로 실패")
     return None
 
 
 # ── 2. 가격 조회 통합 (ETF/펀드 분기) ────────────────────
 def fetch_price(holding: dict) -> float | None:
     ticker = holding["ticker"]
+
     if holding["is_fund"]:
-        price = fetch_kofia_price(ticker)
+        price = fetch_data_go_fund_price(ticker)
     else:
         price = fetch_yahoo_price(ticker)
         if price:
             print(f"[Yahoo] {ticker}.KS → {price:,.0f}원")
+        else:
+            print(f"[Yahoo] {ticker}.KS 실패 → 공공데이터포털 ETF API fallback")
+            price = fetch_data_go_etf_price(ticker)
+
     time.sleep(0.3)
     return price
 
