@@ -1,32 +1,29 @@
 name: Pension ETF Price Update
 
 on:
-  workflow_run:
-    workflows: ["Real Estate Price Update"]
-    types:
-      - completed
-  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 6'   # 토요일 KST 12:00
+  workflow_dispatch:       # 수동 실행 버튼
 
 jobs:
   update-pension:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests pykrx
+        run: pip install requests
 
       - name: Run pension ETF automation
         env:
-          NOTION_TOKEN:      ${{ secrets.NOTION_TOKEN }}
-          DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
-          DB_EVAL_RESULT:    ${{ secrets.DB_EVAL_RESULT }}
+          NOTION_TOKEN:        ${{ secrets.NOTION_TOKEN }}
+          DB_ASSET_HOLDINGS:   ${{ secrets.DB_ASSET_HOLDINGS }}   # ← 추가
+          DB_EVAL_RESULT:      ${{ secrets.DB_EVAL_RESULT }}       # ← 추가
+          PUBLIC_DATA_API_KEY: ${{ secrets.PUBLIC_DATA_API_KEY }}  # ← 추가
         run: python pension_etf_automation.py
