@@ -1,9 +1,9 @@
 name: 5. 연금
 
 on:
-  schedule:
-    - cron: '0 3 * * 6'   # 토요일 KST 12:00
-  workflow_dispatch:       # 수동 실행 버튼
+  # schedule:
+  #   - cron: '0 3 * * 6'
+  workflow_dispatch:  # 수동실행만 가능
 
 jobs:
   update-pension:
