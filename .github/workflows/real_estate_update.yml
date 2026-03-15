@@ -1,31 +1,28 @@
 name: 3. 부동산
-
 on:
-  schedule:
-    # 매주 토요일 12:00 KST (= UTC 03:00)
-    - cron: '0 3 * * 6'
-  workflow_dispatch:   # 수동 실행 허용
+  workflow_run:
+    workflows: ["2. 주식"]
+    types:
+      - completed
+  workflow_dispatch:
 
 jobs:
   update-real-estate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
+          python-version: "3.11"
       - name: Install dependencies
-        run: |
-          pip install requests python-dateutil
-
-      - name: Run real estate price update
+        run: pip install requests
+      - name: Run real estate automation
         env:
-          NOTION_TOKEN:        ${{ secrets.NOTION_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
+          DB_REAL_ESTATE: ${{ secrets.DB_REAL_ESTATE }}
           PUBLIC_DATA_API_KEY: ${{ secrets.PUBLIC_DATA_API_KEY }}
         run: python real_estate_automation.py
