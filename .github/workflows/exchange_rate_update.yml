@@ -2,8 +2,8 @@ name: 1. 환율
 
 on:
   schedule:
-    # 매주 토요일 03:00 UTC = 12:00 KST
-    - cron: '0 3 * * 6'
+    # 매일 18:00 KST = 09:00 UTC
+    - cron: '0 9 * * *'
   
   # 수동 실행 버튼 (테스트용)
   workflow_dispatch:
