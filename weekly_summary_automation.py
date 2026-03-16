@@ -1,5 +1,5 @@
 """
-weekly_summary_automation.py  (v4 - 억 단위 저장)
+weekly_summary_automation.py  (v5 - 억 단위 소수점 2자리)
 Phase 4 - 자산평가결과 → 분류별 집계 → 주간자산요약 DB 저장
 
 [자산평가결과 DB 컬럼 구조]
@@ -192,7 +192,7 @@ def save_summary(category: str, data: dict, ratio: float, run_date: str) -> None
             "select": {"name": category}
         },
         "총평가액": {
-            "number": round(eval_amount / 1e8, 4)
+            "number": round(eval_amount / 1e8, 2)
         },
         "종목수": {
             "number": count
@@ -206,9 +206,9 @@ def save_summary(category: str, data: dict, ratio: float, run_date: str) -> None
     }
 
     if prev_amount is not None:
-        properties["직전평가액"] = {"number": round(prev_amount / 1e8, 4)}
+        properties["직전평가액"] = {"number": round(prev_amount / 1e8, 2)}
     if change_amount is not None:
-        properties["변동액"] = {"number": round(change_amount / 1e8, 4)}
+        properties["변동액"] = {"number": round(change_amount / 1e8, 2)}
     if change_rate is not None:
         properties["변동율"] = {"number": change_rate}
 
