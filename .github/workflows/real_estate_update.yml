@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests python-dateutil
       - name: Run real estate automation
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
