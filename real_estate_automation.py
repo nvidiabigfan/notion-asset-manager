@@ -1,5 +1,5 @@
 """
-Phase 3: 부동산 실거래가 자동화 (v3 - 거래금액 억 단위 저장)
+Phase 3: 부동산 실거래가 자동화 (v4 - 거래금액 억 단위 소수점 2자리)
 
 수정 내역:
   1. get_prev_eval(): 평가일자(Title) 필터 → rich_text contains + Python에서 날짜 비교
@@ -306,7 +306,7 @@ def save_to_real_estate_db(asset_name, trades, avg_price, run_date):
     properties = {
         "지번/주소": {"title": [{"text": {"content": asset_name}}]},
         "거래일자":  {"date":  {"start": run_date}},
-        "거래금액":  {"number": round(avg_price / 1e8, 4)},
+        "거래금액":  {"number": round(avg_price / 1e8, 2)},
         "출처":     {"rich_text": [{"text": {"content": "국토부"}}]},
         "비고":     {"rich_text": [{"text": {"content": "\n".join(ref_lines)[:2000]}}]},
     }
