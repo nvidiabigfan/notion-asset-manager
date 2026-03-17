@@ -31,7 +31,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
-NOTION_TOKEN      = os.environ["NOTION_TOKEN"
+NOTION_TOKEN      = os.environ["NOTION_TOKEN"]
 DB_EVAL_RESULT    = os.environ["DB_EVAL_RESULT"]
 DB_WEEKLY_SUMMARY = os.environ["DB_WEEKLY_SUMMARY"]
 
