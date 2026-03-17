@@ -67,7 +67,7 @@ def fetch_eval_results(run_date: str) -> list[dict]:
     payload = {
         "filter": {
             "property": "평가일자",
-            "rich_text": {"equals": run_date}   # Title은 rich_text 필터
+            "title": {"equals": run_date}        # Title 타입은 title 필터 사용
         },
         "page_size": 100,
     }
