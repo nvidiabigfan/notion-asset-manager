@@ -1,7 +1,7 @@
 name: 6. 요약
 on:
   workflow_run:
-    workflows: ["5. 연금"]
+    workflows: ["4. 암호화폐"]
     types:
       - completed
   workflow_dispatch:
