@@ -432,8 +432,8 @@ def main():
             print(f"\n[2/4] 평균 실거래가: {avg_uk:.0f}억 {avg_ck:,.0f}만원")
 
         if trades and avg_price is not None:
-    print(f"\n[3/4] 부동산 실거래가 DB 저장")
-    save_to_real_estate_db(asset_name, trades, avg_price, run_date)
+           print(f"\n[3/4] 부동산 실거래가 DB 저장")
+           save_to_real_estate_db(asset_name, trades, avg_price, run_date)
 else:
     print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (실거래 없음)")
 
