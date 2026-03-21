@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests python-dateutil
+        run: pip install requests python-dateutil pytz
 
       # ── 1. 환율 ──────────────────────────────────────────
       - name: 1. 환율 조회
