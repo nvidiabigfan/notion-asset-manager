@@ -219,7 +219,7 @@ def save_summary(category: str, data: dict, ratio: float,
     eval_amount = data["평가액"]
     count       = data["종목수"]
     sort_no     = SORT_ORDER.get(category, 50)
-    title_val   = f"{run_date}_{category}"
+    title_val   = run_date
 
     # 직전평가액: prev_map에서 해당 분류 조회
     prev_amount = prev_map.get(category)
