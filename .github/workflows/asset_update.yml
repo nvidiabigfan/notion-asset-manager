@@ -1,0 +1,63 @@
+name: 자산 업데이트
+
+on:
+  schedule:
+    # 매일 18:00 KST = 09:00 UTC
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests python-dateutil
+
+      # ── 1. 환율 ──────────────────────────────────────────
+      - name: 1. 환율 조회
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_EXCHANGE_RATE: ${{ secrets.DB_EXCHANGE_RATE }}
+        run: python exchange_rate_automation.py
+
+      # ── 2. 주식 (연금 포함) ──────────────────────────────
+      - name: 2. 주식 조회 (연금 포함)
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
+          DB_EVAL_RESULT: ${{ secrets.DB_EVAL_RESULT }}
+        run: python stock_price_automation.py
+
+      # ── 3. 부동산 ────────────────────────────────────────
+      - name: 3. 부동산 조회
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
+          DB_EVAL_RESULT: ${{ secrets.DB_EVAL_RESULT }}
+          DB_REAL_ESTATE: ${{ secrets.DB_REAL_ESTATE }}
+          PUBLIC_DATA_API_KEY: ${{ secrets.PUBLIC_DATA_API_KEY }}
+        run: python real_estate_automation.py
+
+      # ── 4. 암호화폐 ──────────────────────────────────────
+      - name: 4. 암호화폐 조회
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
+          DB_EVAL_RESULT: ${{ secrets.DB_EVAL_RESULT }}
+        run: python crypto_price_automation.py
+
+      # ── 5. 요약 ──────────────────────────────────────────
+      - name: 5. 주간 요약
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_EVAL_RESULT: ${{ secrets.DB_EVAL_RESULT }}
+          DB_WEEKLY_SUMMARY: ${{ secrets.DB_WEEKLY_SUMMARY }}
+        run: python weekly_summary_automation.py
