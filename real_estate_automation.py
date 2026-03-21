@@ -307,7 +307,7 @@ def save_to_real_estate_db(asset_name, trades, avg_price, run_date):
         "지번/주소": {"title": [{"text": {"content": asset_name}}]},
         "거래일자":  {"date":  {"start": run_date}},
         "거래금액":  {"number": round(avg_price / 1e8, 2)},
-        "출처":     {"rich_text": [{"text": {"content": "국토부"}}]},
+        "출처":     {"rich_text": [{"text": {"content": "국토부" if trades else "매수가(실거래없음)"}}]},
         "비고":     {"rich_text": [{"text": {"content": "\n".join(ref_lines)[:2000]}}]},
     }
 
@@ -432,10 +432,13 @@ def main():
             print(f"\n[2/4] 평균 실거래가: {avg_uk:.0f}억 {avg_ck:,.0f}만원")
 
         if trades and avg_price is not None:
-           print(f"\n[3/4] 부동산 실거래가 DB 저장")
-           save_to_real_estate_db(asset_name, trades, avg_price, run_date)
+            print(f"\n[3/4] 부동산 실거래가 DB 저장")
+            save_to_real_estate_db(asset_name, trades, avg_price, run_date)
+        elif avg_price is not None:
+            print(f"\n[3/4] 부동산 실거래가 DB 저장 (매수가 대체)")
+            save_to_real_estate_db(asset_name, [], avg_price, run_date)
         else:
-           print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (실거래 없음)")
+            print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (데이터 없음)")
 
         print(f"\n[4/4] 자산평가 결과 DB 저장")
         prev_eval = get_prev_eval(asset_name, run_date)
