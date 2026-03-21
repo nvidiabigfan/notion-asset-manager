@@ -434,8 +434,8 @@ def main():
         if trades and avg_price is not None:
            print(f"\n[3/4] 부동산 실거래가 DB 저장")
            save_to_real_estate_db(asset_name, trades, avg_price, run_date)
-else:
-    print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (실거래 없음)")
+        else:
+           print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (실거래 없음)")
 
         print(f"\n[4/4] 자산평가 결과 DB 저장")
         prev_eval = get_prev_eval(asset_name, run_date)
