@@ -416,8 +416,9 @@ def main():
         trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT, asset["apt_name"], asset["bldg_type"])
 
         if not trades:
-            print(f"  ⚠ 실거래 데이터 없음 — 현재가/평가액 공란으로 행 생성")
-            avg_price = None
+    fallback_price = asset["unit_price"]
+    print(f"  ⚠ 실거래 데이터 없음 — 매수가({fallback_price:,.0f}원)로 대체")
+    avg_price = float(fallback_price) if fallback_price > 0 else None
         else:
             print(f"  📊 조회된 거래: {len(trades)}건")
             for t in trades:
@@ -431,10 +432,10 @@ def main():
             print(f"\n[2/4] 평균 실거래가: {avg_uk:.0f}억 {avg_ck:,.0f}만원")
 
         if trades and avg_price is not None:
-            print(f"\n[3/4] 부동산 실거래가 DB 저장")
-            save_to_real_estate_db(asset_name, trades, avg_price, run_date)
-        else:
-            print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (데이터 없음)")
+    print(f"\n[3/4] 부동산 실거래가 DB 저장")
+    save_to_real_estate_db(asset_name, trades, avg_price, run_date)
+else:
+    print(f"\n[3/4] 부동산 실거래가 DB 저장 — 건너뜀 (실거래 없음)")
 
         print(f"\n[4/4] 자산평가 결과 DB 저장")
         prev_eval = get_prev_eval(asset_name, run_date)
