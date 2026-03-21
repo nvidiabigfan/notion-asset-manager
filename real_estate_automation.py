@@ -416,9 +416,9 @@ def main():
         trades = get_recent_trades(lawd_cd, dong, area, RECENT_COUNT, asset["apt_name"], asset["bldg_type"])
 
         if not trades:
-    fallback_price = asset["unit_price"]
-    print(f"  ⚠ 실거래 데이터 없음 — 매수가({fallback_price:,.0f}원)로 대체")
-    avg_price = float(fallback_price) if fallback_price > 0 else None
+            fallback_price = asset["unit_price"]
+            print(f"  ⚠ 실거래 데이터 없음 — 매수가({fallback_price:,.0f}원)로 대체")
+            avg_price = float(fallback_price) if fallback_price > 0 else None
         else:
             print(f"  📊 조회된 거래: {len(trades)}건")
             for t in trades:
