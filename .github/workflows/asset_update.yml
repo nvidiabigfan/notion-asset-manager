@@ -2,8 +2,8 @@ name: 자산 업데이트
 
 on:
   schedule:
-    # 매일 18:00 KST = 09:00 UTC
-    - cron: '0 9 * * *'
+    # 매주 토요일 12:00 KST = 03:00 UTC
+    - cron: '0 3 * * 6'
   workflow_dispatch:
 
 jobs:
