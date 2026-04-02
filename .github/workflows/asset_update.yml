@@ -61,3 +61,19 @@ jobs:
           DB_EVAL_RESULT: ${{ secrets.DB_EVAL_RESULT }}
           DB_WEEKLY_SUMMARY: ${{ secrets.DB_WEEKLY_SUMMARY }}
         run: python weekly_summary_automation.py
+
+      # ── 6. 대시보드 ───────────────────────────────────────
+      - name: 6. 대시보드 생성
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_EVAL_RESULT: ${{ secrets.DB_EVAL_RESULT }}
+          DB_WEEKLY_SUMMARY: ${{ secrets.DB_WEEKLY_SUMMARY }}
+        run: python generate_dashboard.py
+
+      - name: 6-1. 대시보드 배포 (GitHub Pages)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html
+          git diff --cached --quiet || git commit -m "📊 대시보드 업데이트 $(date +'%Y-%m-%d')"
+          git push
