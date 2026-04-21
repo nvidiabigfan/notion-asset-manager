@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_GITHUB }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -73,11 +73,9 @@ jobs:
         run: python generate_dashboard.py
 
       - name: 6-1. 대시보드 배포 (GitHub Pages)
-        env:
-           PAT_TOKEN: ${{ secrets.PAT_GITHUB }}  # ← 변수명 변경
         run: |
-           git config user.name "github-actions[bot]"
-           git config user.email "github-actions[bot]@users.noreply.github.com"
-           git add docs/index.html
-           git diff --cached --quiet || git commit -m "📊 대시보드 업데이트 $(date +'%Y-%m-%d')"
-           git push https://x-access-token:${PAT_TOKEN}@github.com/nvidiabigfan/notion-asset-manager.git  # ← 변수명 일치
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html
+          git diff --cached --quiet || git commit -m "📊 대시보드 업데이트 $(date +'%Y-%m-%d')"
+          git push origin main
