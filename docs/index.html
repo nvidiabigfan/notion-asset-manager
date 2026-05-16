@@ -14,12 +14,12 @@
     padding: 20px;
   }
   h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 4px; color: #a0c4ff; }
-  .subtitle { font-size: 0.8rem; color: #777; margin-bottom: 20px; }
+  .subtitle { font-size: 0.8rem; color: #777; margin-bottom: 16px; }
   .cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 12px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
   }
   .card {
     background: #1a1a2e;
@@ -27,14 +27,15 @@
     padding: 16px;
     border: 1px solid #2a2a4a;
   }
+  .owner-card { border-width: 2px; }
   .card-label { font-size: 0.75rem; color: #888; margin-bottom: 6px; }
   .card-value { font-size: 1.5rem; font-weight: 700; }
-  .card-sub { font-size: 0.8rem; color: #999; margin-top: 4px; }
+  .card-sub { font-size: 0.78rem; color: #999; margin-top: 4px; }
+  .section { margin-bottom: 20px; }
   .charts {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
-    margin-bottom: 16px;
   }
   .chart-box {
     background: #1a1a2e;
@@ -42,8 +43,18 @@
     padding: 14px;
     border: 1px solid #2a2a4a;
   }
-  .chart-title { font-size: 0.85rem; color: #aaa; margin-bottom: 10px; font-weight: 600; }
-  .full-width { grid-column: 1 / -1; }
+  .chart-title { font-size: 0.85rem; color: #aaa; margin-bottom: 6px; font-weight: 600; }
+  .chart-hint  { font-size: 0.72rem; color: #666; margin-bottom: 8px; }
+  .full-width  { grid-column: 1 / -1; }
+  .placeholder {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+  }
   @media (max-width: 700px) { .charts { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -52,6 +63,7 @@
 <h1>자산 포트폴리오 대시보드</h1>
 <div class="subtitle">기준일: 2026-05-16 &nbsp;|&nbsp; 갱신: 2026-05-16 14:57 KST</div>
 
+<!-- ① 전체 요약 카드 -->
 <div class="cards">
   <div class="card">
     <div class="card-label">총 평가액</div>
@@ -75,31 +87,178 @@
   </div>
 </div>
 
-<div class="charts">
+<!-- ② 보유자별 카드 -->
+<div class="cards">
+  <div class="card owner-card" style="border-color:#7B68EE55">
+    <div class="card-label" style="color:#7B68EE">승민</div>
+    <div class="card-value" style="color:#7B68EE">-</div>
+    <div class="card-sub" style="color:#666">다음 갱신 시 자동 표시 (보유자 필드 연동 완료)</div>
+  </div>
+  <div class="card owner-card" style="border-color:#FF7F7F55">
+    <div class="card-label" style="color:#FF7F7F">민경</div>
+    <div class="card-value" style="color:#FF7F7F">-</div>
+    <div class="card-sub" style="color:#666">다음 갱신 시 자동 표시 (보유자 필드 연동 완료)</div>
+  </div>
+</div>
+
+<!-- ③ 보유자별 자산구성 -->
+<div class="section">
+  <div class="charts">
+    <div class="chart-box">
+      <div class="chart-title">승민 자산구성</div>
+      <div style="height:220px"><div class="placeholder">다음 주 토요일 갱신 후 자동 표시</div></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">민경 자산구성</div>
+      <div style="height:220px"><div class="placeholder">다음 주 토요일 갱신 후 자동 표시</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ④ 주간 변동률 (WoW) -->
+<div class="section">
   <div class="chart-box">
-    <div class="chart-title">자산분류별 구성비</div>
-    <div id="pie" style="height:280px"></div>
+    <div class="chart-title">주차별 자산 변동률 (Week-over-Week %)</div>
+    <div class="chart-hint">▶ 미국주식·한국주식·암호화폐 기본 표시 / 레전드 클릭으로 부동산·연금 토글</div>
+    <div id="wow" style="height:320px"></div>
   </div>
+</div>
+
+<!-- ⑤ 정규화 성과 추이 -->
+<div class="section">
   <div class="chart-box">
-    <div class="chart-title">종목별 수익률</div>
-    <div id="rate" style="height:280px"></div>
+    <div class="chart-title">자산분류별 상대 성과 (첫 기준일 = 100)</div>
+    <div class="chart-hint">▶ 부동산 규모 차이 제거 — 상대 수익률만 비교</div>
+    <div id="norm" style="height:280px"></div>
   </div>
-  <div class="chart-box full-width">
-    <div class="chart-title">종목별 평가액 vs 매수원가 (만원)</div>
-    <div id="eval" style="height:300px"></div>
-  </div>
-  <div class="chart-box full-width">
+</div>
+
+<!-- ⑥ 절대 추이 -->
+<div class="section">
+  <div class="chart-box">
     <div class="chart-title">자산분류별 평가액 추이 (백만원)</div>
-    <div id="hist" style="height:300px"></div>
+    <div id="hist" style="height:280px"></div>
+  </div>
+</div>
+
+<!-- ⑦⑧ 종목별 차트 -->
+<div class="section">
+  <div class="charts">
+    <div class="chart-box">
+      <div class="chart-title">종목별 수익률</div>
+      <div id="rate" style="height:340px"></div>
+    </div>
+    <div class="chart-box full-width">
+      <div class="chart-title">종목별 평가액 vs 매수원가 (만원)</div>
+      <div id="eval" style="height:340px"></div>
+    </div>
   </div>
 </div>
 
 <script>
 const cfg = {responsive: true, displayModeBar: false};
-Plotly.newPlot('pie',  {"data": [{"type": "pie", "labels": ["\uc554\ud638\ud654\ud3d0", "\ubd80\ub3d9\uc0b0", "\ud55c\uad6d\uc8fc\uc2dd", "\ubbf8\uad6d\uc8fc\uc2dd", "\uc5f0\uae08"], "values": [17.173387, 2757.4, 109.08097, 284.135494, 63.15356], "marker": {"colors": ["#A8DADC", "#E76F51", "#4C9BE8", "#F4A261", "#81B29A"]}, "textinfo": "label+percent", "hovertemplate": "%{label}<br>%{value:,.0f}\ubc31\ub9cc\uc6d0<br>%{percent}<extra></extra>"}], "layout": {"margin": {"t": 10, "b": 10, "l": 10, "r": 10}, "showlegend": true, "legend": {"orientation": "h", "y": -0.15}, "paper_bgcolor": "#1a1a2e", "font": {"color": "#e0e0e0"}}}.data,  {"data": [{"type": "pie", "labels": ["\uc554\ud638\ud654\ud3d0", "\ubd80\ub3d9\uc0b0", "\ud55c\uad6d\uc8fc\uc2dd", "\ubbf8\uad6d\uc8fc\uc2dd", "\uc5f0\uae08"], "values": [17.173387, 2757.4, 109.08097, 284.135494, 63.15356], "marker": {"colors": ["#A8DADC", "#E76F51", "#4C9BE8", "#F4A261", "#81B29A"]}, "textinfo": "label+percent", "hovertemplate": "%{label}<br>%{value:,.0f}\ubc31\ub9cc\uc6d0<br>%{percent}<extra></extra>"}], "layout": {"margin": {"t": 10, "b": 10, "l": 10, "r": 10}, "showlegend": true, "legend": {"orientation": "h", "y": -0.15}, "paper_bgcolor": "#1a1a2e", "font": {"color": "#e0e0e0"}}}.layout,  cfg);
-Plotly.newPlot('rate', {"data": [{"type": "bar", "x": [-94.76, -52.57, -48.49, -41.63, -36.6, -36.32, -35.68, -34.77, -30.4, -30.14, -28.63, -26.31, -26.07, -23.64, -17.0, -15.73, -14.55, -5.4, -5.3, 0.0, 0.0, 1.21, 3.29, 7.32, 7.41, 11.28, 19.91, 22.91, 23.97, 26.41, 27.94, 28.44, 29.85, 33.82, 39.79, 39.96, 41.31, 42.01, 45.37, 54.04, 62.87, 67.27, 67.78, 73.41, 84.94, 98.79, 115.78, 117.75, 142.92, 156.35, 161.81, 216.76, 352.72, 353.33, 1408.0], "y": ["\ube44\ud2b8\ucf54\uc778", "\ubd88\ub9ac\uc26c", "\uc560\ub2c8\ud50c\ub7ec\uc2a4", "\ub9ac\ucee4\uc804", "\ud798\uc2a4\uc564\ub4dc\ud5c8\uc2a4\ud5ec\uc2a4\ucf00\uc5b4", "\ud15c\ud37c\uc2a4AI", "\uc778\ud50c\ub809\uc158", "\ube44\ud2b8\ub9c8\uc778", "\ub9ac\ucee4\uc83c", "\uc870\ube44\uc5d0\ube44\uc5d0\uc774\uc158", "\uacbd\uae30\ub3c4 \ud3c9\ud0dd\uc2dc \uc138\uad50\ub3d9 559", "\uc5e1\uc140\ub808\ub77c", "\ud2b8\uc6ec\ud2f0\uc6d0\uce90\ud53c\ud0c8", "NAVER", "\ucda9\uccad\ub0a8\ub3c4 \ucc9c\uc548\uc2dc \ub3d9\ub0a8\uad6c \uc2e0\ubd80\ub3d9 541", "SOL \ud314\ub780\ud2f0\uc5b4\ucee4\ubc84\ub4dc\ucf5cOTM\ucc44\uad8c\ud63c\ud569", "\uc9c0\uc5d4\uc528\uc5d0\ub108\uc9c0", "KODEX \ubbf8\uad6dS&P500\ud5ec\uc2a4\ucf00\uc5b4", "\uc2a4\ud53c\uc5b4", "\uacbd\uae30\ub3c4 \uc548\uc591\uc2dc \ub9cc\uc548\uad6c \uc548\uc591\ub3d9 627-30", "\uacbd\uae30\ub3c4 \ud654\uc131\uc2dc \ubcd1\uc810\uad6c \ubcd1\uc810\ub3d9 892-3", "RISE \uae00\ub85c\ubc8c\uc790\uc0b0\ubc30\ubd84\uc561\ud2f0\ube0c", "1Q \ubbf8\uad6d\uc6b0\uc8fc\ud56d\uacf5\ud14c\ud06c", "KODEX 2\ucc28\uc804\uc9c0", "RISE \ud314\ub780\ud2f0\uc5b4\uace0\uc815\ud14c\ud06c100", "ACE \ubbf8\uad6d\ube45\ud14c\ud06cTOP7 Plus", "IREN", "SOL \ubbf8\uad6dAI\uc804\ub825\uc778\ud504\ub77c", "TIME Korea\ud50c\ub7ec\uc2a4\ubc30\ub2f9\uc561\ud2f0\ube0c", "\ud55c\ud654\uc194\ub8e8\uc158", "\uc544\uc774\ub80c", "\uc544\ub9c8\uc874\ub2f7\ucef4", "\uc5d0\uc2a4\ud53c\uc9c0", "\ub450\uc0b0\uc5d0\ub108\ube4c\ub9ac\ud2f0", "\ub85c\ubcf4\ud2f0\uc988", "\ud314\ub780\ud2f0\uc5b4", "\ub808\ub4dc\uc640\uc774\uc5b4", "\ucf54\uc5b4\uc704\ube0c", "\ub85c\ucf13\ub7a9", "KODEX \ubbf8\uad6d\ub098\uc2a4\ub2e5100", "\uc774\ub354\ub9ac\uc6c0", "\uc5d4\ube44\ub514\uc544", "ACE \uad6c\uae00\ubc38\ub958\uccb4\uc778\uc561\ud2f0\ube0c", "\ud55c\uad6d\ud56d\uacf5\uc6b0\uc8fc", "\ud30c\ub450", "\ub204\ub9ac\ud50c\ub809\uc2a4", "\ud558\uc774\ub2c9\uc2a4", "\ud14c\uc2ac\ub77c", "\ubbf8\ub798\uc5d0\uc14b\ubca4\ucc98\ud22c\uc790", "\uc544\uc774\uc628\ud050", "\uc778\ud154\ub9ac\uc548\ud14c\ud06c", "\ud604\ub300\ucc28", "\uc0bc\uc131\uc804\uc790", "\uc194\ub77c\ub098", "\uc11c\uc6b8\uc2dc \uc601\ub4f1\ud3ec\uad6c \uc2e0\uae38\ub3d9 364"], "orientation": "h", "marker": {"color": ["#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71"]}, "text": ["-94.76%", "-52.57%", "-48.49%", "-41.63%", "-36.60%", "-36.32%", "-35.68%", "-34.77%", "-30.40%", "-30.14%", "-28.63%", "-26.31%", "-26.07%", "-23.64%", "-17.00%", "-15.73%", "-14.55%", "-5.40%", "-5.30%", "0.00%", "0.00%", "+1.21%", "+3.29%", "+7.32%", "+7.41%", "+11.28%", "+19.91%", "+22.91%", "+23.97%", "+26.41%", "+27.94%", "+28.44%", "+29.85%", "+33.82%", "+39.79%", "+39.96%", "+41.31%", "+42.01%", "+45.37%", "+54.04%", "+62.87%", "+67.27%", "+67.78%", "+73.41%", "+84.94%", "+98.79%", "+115.78%", "+117.75%", "+142.92%", "+156.35%", "+161.81%", "+216.76%", "+352.72%", "+353.33%", "+1408.00%"], "textposition": "outside", "hovertemplate": "%{y}<br>%{x:.2f}%<extra></extra>"}], "layout": {"margin": {"t": 10, "b": 30, "l": 120, "r": 80}, "xaxis": {"title": "", "zeroline": true, "zerolinecolor": "#555"}, "yaxis": {"automargin": true}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}}}.data, {"data": [{"type": "bar", "x": [-94.76, -52.57, -48.49, -41.63, -36.6, -36.32, -35.68, -34.77, -30.4, -30.14, -28.63, -26.31, -26.07, -23.64, -17.0, -15.73, -14.55, -5.4, -5.3, 0.0, 0.0, 1.21, 3.29, 7.32, 7.41, 11.28, 19.91, 22.91, 23.97, 26.41, 27.94, 28.44, 29.85, 33.82, 39.79, 39.96, 41.31, 42.01, 45.37, 54.04, 62.87, 67.27, 67.78, 73.41, 84.94, 98.79, 115.78, 117.75, 142.92, 156.35, 161.81, 216.76, 352.72, 353.33, 1408.0], "y": ["\ube44\ud2b8\ucf54\uc778", "\ubd88\ub9ac\uc26c", "\uc560\ub2c8\ud50c\ub7ec\uc2a4", "\ub9ac\ucee4\uc804", "\ud798\uc2a4\uc564\ub4dc\ud5c8\uc2a4\ud5ec\uc2a4\ucf00\uc5b4", "\ud15c\ud37c\uc2a4AI", "\uc778\ud50c\ub809\uc158", "\ube44\ud2b8\ub9c8\uc778", "\ub9ac\ucee4\uc83c", "\uc870\ube44\uc5d0\ube44\uc5d0\uc774\uc158", "\uacbd\uae30\ub3c4 \ud3c9\ud0dd\uc2dc \uc138\uad50\ub3d9 559", "\uc5e1\uc140\ub808\ub77c", "\ud2b8\uc6ec\ud2f0\uc6d0\uce90\ud53c\ud0c8", "NAVER", "\ucda9\uccad\ub0a8\ub3c4 \ucc9c\uc548\uc2dc \ub3d9\ub0a8\uad6c \uc2e0\ubd80\ub3d9 541", "SOL \ud314\ub780\ud2f0\uc5b4\ucee4\ubc84\ub4dc\ucf5cOTM\ucc44\uad8c\ud63c\ud569", "\uc9c0\uc5d4\uc528\uc5d0\ub108\uc9c0", "KODEX \ubbf8\uad6dS&P500\ud5ec\uc2a4\ucf00\uc5b4", "\uc2a4\ud53c\uc5b4", "\uacbd\uae30\ub3c4 \uc548\uc591\uc2dc \ub9cc\uc548\uad6c \uc548\uc591\ub3d9 627-30", "\uacbd\uae30\ub3c4 \ud654\uc131\uc2dc \ubcd1\uc810\uad6c \ubcd1\uc810\ub3d9 892-3", "RISE \uae00\ub85c\ubc8c\uc790\uc0b0\ubc30\ubd84\uc561\ud2f0\ube0c", "1Q \ubbf8\uad6d\uc6b0\uc8fc\ud56d\uacf5\ud14c\ud06c", "KODEX 2\ucc28\uc804\uc9c0", "RISE \ud314\ub780\ud2f0\uc5b4\uace0\uc815\ud14c\ud06c100", "ACE \ubbf8\uad6d\ube45\ud14c\ud06cTOP7 Plus", "IREN", "SOL \ubbf8\uad6dAI\uc804\ub825\uc778\ud504\ub77c", "TIME Korea\ud50c\ub7ec\uc2a4\ubc30\ub2f9\uc561\ud2f0\ube0c", "\ud55c\ud654\uc194\ub8e8\uc158", "\uc544\uc774\ub80c", "\uc544\ub9c8\uc874\ub2f7\ucef4", "\uc5d0\uc2a4\ud53c\uc9c0", "\ub450\uc0b0\uc5d0\ub108\ube4c\ub9ac\ud2f0", "\ub85c\ubcf4\ud2f0\uc988", "\ud314\ub780\ud2f0\uc5b4", "\ub808\ub4dc\uc640\uc774\uc5b4", "\ucf54\uc5b4\uc704\ube0c", "\ub85c\ucf13\ub7a9", "KODEX \ubbf8\uad6d\ub098\uc2a4\ub2e5100", "\uc774\ub354\ub9ac\uc6c0", "\uc5d4\ube44\ub514\uc544", "ACE \uad6c\uae00\ubc38\ub958\uccb4\uc778\uc561\ud2f0\ube0c", "\ud55c\uad6d\ud56d\uacf5\uc6b0\uc8fc", "\ud30c\ub450", "\ub204\ub9ac\ud50c\ub809\uc2a4", "\ud558\uc774\ub2c9\uc2a4", "\ud14c\uc2ac\ub77c", "\ubbf8\ub798\uc5d0\uc14b\ubca4\ucc98\ud22c\uc790", "\uc544\uc774\uc628\ud050", "\uc778\ud154\ub9ac\uc548\ud14c\ud06c", "\ud604\ub300\ucc28", "\uc0bc\uc131\uc804\uc790", "\uc194\ub77c\ub098", "\uc11c\uc6b8\uc2dc \uc601\ub4f1\ud3ec\uad6c \uc2e0\uae38\ub3d9 364"], "orientation": "h", "marker": {"color": ["#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#E74C3C", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71", "#2ECC71"]}, "text": ["-94.76%", "-52.57%", "-48.49%", "-41.63%", "-36.60%", "-36.32%", "-35.68%", "-34.77%", "-30.40%", "-30.14%", "-28.63%", "-26.31%", "-26.07%", "-23.64%", "-17.00%", "-15.73%", "-14.55%", "-5.40%", "-5.30%", "0.00%", "0.00%", "+1.21%", "+3.29%", "+7.32%", "+7.41%", "+11.28%", "+19.91%", "+22.91%", "+23.97%", "+26.41%", "+27.94%", "+28.44%", "+29.85%", "+33.82%", "+39.79%", "+39.96%", "+41.31%", "+42.01%", "+45.37%", "+54.04%", "+62.87%", "+67.27%", "+67.78%", "+73.41%", "+84.94%", "+98.79%", "+115.78%", "+117.75%", "+142.92%", "+156.35%", "+161.81%", "+216.76%", "+352.72%", "+353.33%", "+1408.00%"], "textposition": "outside", "hovertemplate": "%{y}<br>%{x:.2f}%<extra></extra>"}], "layout": {"margin": {"t": 10, "b": 30, "l": 120, "r": 80}, "xaxis": {"title": "", "zeroline": true, "zerolinecolor": "#555"}, "yaxis": {"automargin": true}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}}}.layout, cfg);
-Plotly.newPlot('eval', {"data": [{"type": "bar", "name": "\ub9e4\uc218\uc6d0\uac00", "x": ["\uc11c\uc6b8\uc2dc \uc601\ub4f1\ud3ec\uad6c \uc2e0\uae38\ub3d9 364", "\uacbd\uae30\ub3c4 \uc548\uc591\uc2dc \ub9cc\uc548\uad6c \uc548\uc591\ub3d9 627-30", "\uacbd\uae30\ub3c4 \ud654\uc131\uc2dc \ubcd1\uc810\uad6c \ubcd1\uc810\ub3d9 892-3", "\uacbd\uae30\ub3c4 \ud3c9\ud0dd\uc2dc \uc138\uad50\ub3d9 559", "\ucda9\uccad\ub0a8\ub3c4 \ucc9c\uc548\uc2dc \ub3d9\ub0a8\uad6c \uc2e0\ubd80\ub3d9 541", "\uc5d4\ube44\ub514\uc544", "\ud14c\uc2ac\ub77c", "\uc778\ud154\ub9ac\uc548\ud14c\ud06c", "ACE \uad6c\uae00\ubc38\ub958\uccb4\uc778\uc561\ud2f0\ube0c", "\uc544\uc774\uc628\ud050", "\ud30c\ub450", "TIME Korea\ud50c\ub7ec\uc2a4\ubc30\ub2f9\uc561\ud2f0\ube0c", "\ud314\ub780\ud2f0\uc5b4", "RISE \uae00\ub85c\ubc8c\uc790\uc0b0\ubc30\ubd84\uc561\ud2f0\ube0c", "\ub204\ub9ac\ud50c\ub809\uc2a4", "\ud558\uc774\ub2c9\uc2a4", "\ub450\uc0b0\uc5d0\ub108\ube4c\ub9ac\ud2f0", "\ube44\ud2b8\ub9c8\uc778", "SOL \ubbf8\uad6dAI\uc804\ub825\uc778\ud504\ub77c", "\uc774\ub354\ub9ac\uc6c0", "\ube44\ud2b8\ucf54\uc778", "\uc2a4\ud53c\uc5b4", "IREN", "\uc0bc\uc131\uc804\uc790", "\ud604\ub300\ucc28", "SOL \ud314\ub780\ud2f0\uc5b4\ucee4\ubc84\ub4dc\ucf5cOTM\ucc44\uad8c\ud63c\ud569", "\uc5d0\uc2a4\ud53c\uc9c0", "\ub9ac\ucee4\uc83c", "\ud798\uc2a4\uc564\ub4dc\ud5c8\uc2a4\ud5ec\uc2a4\ucf00\uc5b4", "\uc544\uc774\ub80c", "\ud55c\uad6d\ud56d\uacf5\uc6b0\uc8fc", "\uc560\ub2c8\ud50c\ub7ec\uc2a4", "\ub85c\ucf13\ub7a9", "\ub808\ub4dc\uc640\uc774\uc5b4", "\uc544\ub9c8\uc874\ub2f7\ucef4", "\ub85c\ubcf4\ud2f0\uc988", "\ucf54\uc5b4\uc704\ube0c", "ACE \ubbf8\uad6d\ube45\ud14c\ud06cTOP7 Plus", "RISE \ud314\ub780\ud2f0\uc5b4\uace0\uc815\ud14c\ud06c100", "\ud15c\ud37c\uc2a4AI", "KODEX \ubbf8\uad6d\ub098\uc2a4\ub2e5100", "1Q \ubbf8\uad6d\uc6b0\uc8fc\ud56d\uacf5\ud14c\ud06c", "\uc870\ube44\uc5d0\ube44\uc5d0\uc774\uc158", "\ub9ac\ucee4\uc804", "\uc9c0\uc5d4\uc528\uc5d0\ub108\uc9c0", "\uc194\ub77c\ub098", "KODEX \ubbf8\uad6dS&P500\ud5ec\uc2a4\ucf00\uc5b4", "\ud55c\ud654\uc194\ub8e8\uc158", "\uc778\ud50c\ub809\uc158", "\ubd88\ub9ac\uc26c", "NAVER", "\uc5e1\uc140\ub808\ub77c", "\ud2b8\uc6ec\ud2f0\uc6d0\uce90\ud53c\ud0c8", "\ubbf8\ub798\uc5d0\uc14b\ubca4\ucc98\ud22c\uc790", "KODEX 2\ucc28\uc804\uc9c0"], "y": [7500, 75000, 55000, 24800, 18000, 7467, 3776, 1238, 999, 546, 650, 831, 731, 935, 476, 422, 654, 1328, 699, 508, 14044, 665, 463, 120, 155, 580, 351, 650, 687, 332, 232, 729, 257, 255, 277, 235, 226, 274, 280, 458, 189, 277, 324, 376, 240, 34, 140, 96, 185, 225, 133, 116, 111, 23, 27], "marker": {"color": "#555577"}, "hovertemplate": "%{x}<br>\ub9e4\uc218\uc6d0\uac00: %{y:,.0f}\ub9cc\uc6d0<extra></extra>"}, {"type": "bar", "name": "\ud3c9\uac00\uc561", "x": ["\uc11c\uc6b8\uc2dc \uc601\ub4f1\ud3ec\uad6c \uc2e0\uae38\ub3d9 364", "\uacbd\uae30\ub3c4 \uc548\uc591\uc2dc \ub9cc\uc548\uad6c \uc548\uc591\ub3d9 627-30", "\uacbd\uae30\ub3c4 \ud654\uc131\uc2dc \ubcd1\uc810\uad6c \ubcd1\uc810\ub3d9 892-3", "\uacbd\uae30\ub3c4 \ud3c9\ud0dd\uc2dc \uc138\uad50\ub3d9 559", "\ucda9\uccad\ub0a8\ub3c4 \ucc9c\uc548\uc2dc \ub3d9\ub0a8\uad6c \uc2e0\ubd80\ub3d9 541", "\uc5d4\ube44\ub514\uc544", "\ud14c\uc2ac\ub77c", "\uc778\ud154\ub9ac\uc548\ud14c\ud06c", "ACE \uad6c\uae00\ubc38\ub958\uccb4\uc778\uc561\ud2f0\ube0c", "\uc544\uc774\uc628\ud050", "\ud30c\ub450", "TIME Korea\ud50c\ub7ec\uc2a4\ubc30\ub2f9\uc561\ud2f0\ube0c", "\ud314\ub780\ud2f0\uc5b4", "RISE \uae00\ub85c\ubc8c\uc790\uc0b0\ubc30\ubd84\uc561\ud2f0\ube0c", "\ub204\ub9ac\ud50c\ub809\uc2a4", "\ud558\uc774\ub2c9\uc2a4", "\ub450\uc0b0\uc5d0\ub108\ube4c\ub9ac\ud2f0", "\ube44\ud2b8\ub9c8\uc778", "SOL \ubbf8\uad6dAI\uc804\ub825\uc778\ud504\ub77c", "\uc774\ub354\ub9ac\uc6c0", "\ube44\ud2b8\ucf54\uc778", "\uc2a4\ud53c\uc5b4", "IREN", "\uc0bc\uc131\uc804\uc790", "\ud604\ub300\ucc28", "SOL \ud314\ub780\ud2f0\uc5b4\ucee4\ubc84\ub4dc\ucf5cOTM\ucc44\uad8c\ud63c\ud569", "\uc5d0\uc2a4\ud53c\uc9c0", "\ub9ac\ucee4\uc83c", "\ud798\uc2a4\uc564\ub4dc\ud5c8\uc2a4\ud5ec\uc2a4\ucf00\uc5b4", "\uc544\uc774\ub80c", "\ud55c\uad6d\ud56d\uacf5\uc6b0\uc8fc", "\uc560\ub2c8\ud50c\ub7ec\uc2a4", "\ub85c\ucf13\ub7a9", "\ub808\ub4dc\uc640\uc774\uc5b4", "\uc544\ub9c8\uc874\ub2f7\ucef4", "\ub85c\ubcf4\ud2f0\uc988", "\ucf54\uc5b4\uc704\ube0c", "ACE \ubbf8\uad6d\ube45\ud14c\ud06cTOP7 Plus", "RISE \ud314\ub780\ud2f0\uc5b4\uace0\uc815\ud14c\ud06c100", "\ud15c\ud37c\uc2a4AI", "KODEX \ubbf8\uad6d\ub098\uc2a4\ub2e5100", "1Q \ubbf8\uad6d\uc6b0\uc8fc\ud56d\uacf5\ud14c\ud06c", "\uc870\ube44\uc5d0\ube44\uc5d0\uc774\uc158", "\ub9ac\ucee4\uc804", "\uc9c0\uc5d4\uc528\uc5d0\ub108\uc9c0", "\uc194\ub77c\ub098", "KODEX \ubbf8\uad6dS&P500\ud5ec\uc2a4\ucf00\uc5b4", "\ud55c\ud654\uc194\ub8e8\uc158", "\uc778\ud50c\ub809\uc158", "\ubd88\ub9ac\uc26c", "NAVER", "\uc5e1\uc140\ub808\ub77c", "\ud2b8\uc6ec\ud2f0\uc6d0\uce90\ud53c\ud0c8", "\ubbf8\ub798\uc5d0\uc14b\ubca4\ucc98\ud22c\uc790", "KODEX 2\ucc28\uc804\uc9c0"], "y": [113100, 75000, 55000, 17700, 14940, 12489, 8223, 3240, 1676, 1401, 1201, 1030, 1024, 946, 946, 910, 875, 866, 859, 827, 735, 630, 555, 541, 490, 489, 456, 452, 435, 425, 403, 375, 374, 360, 356, 328, 321, 305, 300, 291, 291, 286, 227, 219, 205, 155, 132, 122, 119, 107, 102, 86, 82, 55, 29], "marker": {"color": "#4C9BE8"}, "hovertemplate": "%{x}<br>\ud3c9\uac00\uc561: %{y:,.0f}\ub9cc\uc6d0<extra></extra>"}], "layout": {"barmode": "group", "margin": {"t": 10, "b": 80, "l": 60, "r": 20}, "xaxis": {"tickangle": -35, "automargin": true}, "yaxis": {"title": "\ub9cc\uc6d0"}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}, "legend": {"orientation": "h", "y": -0.35}}}.data, {"data": [{"type": "bar", "name": "\ub9e4\uc218\uc6d0\uac00", "x": ["\uc11c\uc6b8\uc2dc \uc601\ub4f1\ud3ec\uad6c \uc2e0\uae38\ub3d9 364", "\uacbd\uae30\ub3c4 \uc548\uc591\uc2dc \ub9cc\uc548\uad6c \uc548\uc591\ub3d9 627-30", "\uacbd\uae30\ub3c4 \ud654\uc131\uc2dc \ubcd1\uc810\uad6c \ubcd1\uc810\ub3d9 892-3", "\uacbd\uae30\ub3c4 \ud3c9\ud0dd\uc2dc \uc138\uad50\ub3d9 559", "\ucda9\uccad\ub0a8\ub3c4 \ucc9c\uc548\uc2dc \ub3d9\ub0a8\uad6c \uc2e0\ubd80\ub3d9 541", "\uc5d4\ube44\ub514\uc544", "\ud14c\uc2ac\ub77c", "\uc778\ud154\ub9ac\uc548\ud14c\ud06c", "ACE \uad6c\uae00\ubc38\ub958\uccb4\uc778\uc561\ud2f0\ube0c", "\uc544\uc774\uc628\ud050", "\ud30c\ub450", "TIME Korea\ud50c\ub7ec\uc2a4\ubc30\ub2f9\uc561\ud2f0\ube0c", "\ud314\ub780\ud2f0\uc5b4", "RISE \uae00\ub85c\ubc8c\uc790\uc0b0\ubc30\ubd84\uc561\ud2f0\ube0c", "\ub204\ub9ac\ud50c\ub809\uc2a4", "\ud558\uc774\ub2c9\uc2a4", "\ub450\uc0b0\uc5d0\ub108\ube4c\ub9ac\ud2f0", "\ube44\ud2b8\ub9c8\uc778", "SOL \ubbf8\uad6dAI\uc804\ub825\uc778\ud504\ub77c", "\uc774\ub354\ub9ac\uc6c0", "\ube44\ud2b8\ucf54\uc778", "\uc2a4\ud53c\uc5b4", "IREN", "\uc0bc\uc131\uc804\uc790", "\ud604\ub300\ucc28", "SOL \ud314\ub780\ud2f0\uc5b4\ucee4\ubc84\ub4dc\ucf5cOTM\ucc44\uad8c\ud63c\ud569", "\uc5d0\uc2a4\ud53c\uc9c0", "\ub9ac\ucee4\uc83c", "\ud798\uc2a4\uc564\ub4dc\ud5c8\uc2a4\ud5ec\uc2a4\ucf00\uc5b4", "\uc544\uc774\ub80c", "\ud55c\uad6d\ud56d\uacf5\uc6b0\uc8fc", "\uc560\ub2c8\ud50c\ub7ec\uc2a4", "\ub85c\ucf13\ub7a9", "\ub808\ub4dc\uc640\uc774\uc5b4", "\uc544\ub9c8\uc874\ub2f7\ucef4", "\ub85c\ubcf4\ud2f0\uc988", "\ucf54\uc5b4\uc704\ube0c", "ACE \ubbf8\uad6d\ube45\ud14c\ud06cTOP7 Plus", "RISE \ud314\ub780\ud2f0\uc5b4\uace0\uc815\ud14c\ud06c100", "\ud15c\ud37c\uc2a4AI", "KODEX \ubbf8\uad6d\ub098\uc2a4\ub2e5100", "1Q \ubbf8\uad6d\uc6b0\uc8fc\ud56d\uacf5\ud14c\ud06c", "\uc870\ube44\uc5d0\ube44\uc5d0\uc774\uc158", "\ub9ac\ucee4\uc804", "\uc9c0\uc5d4\uc528\uc5d0\ub108\uc9c0", "\uc194\ub77c\ub098", "KODEX \ubbf8\uad6dS&P500\ud5ec\uc2a4\ucf00\uc5b4", "\ud55c\ud654\uc194\ub8e8\uc158", "\uc778\ud50c\ub809\uc158", "\ubd88\ub9ac\uc26c", "NAVER", "\uc5e1\uc140\ub808\ub77c", "\ud2b8\uc6ec\ud2f0\uc6d0\uce90\ud53c\ud0c8", "\ubbf8\ub798\uc5d0\uc14b\ubca4\ucc98\ud22c\uc790", "KODEX 2\ucc28\uc804\uc9c0"], "y": [7500, 75000, 55000, 24800, 18000, 7467, 3776, 1238, 999, 546, 650, 831, 731, 935, 476, 422, 654, 1328, 699, 508, 14044, 665, 463, 120, 155, 580, 351, 650, 687, 332, 232, 729, 257, 255, 277, 235, 226, 274, 280, 458, 189, 277, 324, 376, 240, 34, 140, 96, 185, 225, 133, 116, 111, 23, 27], "marker": {"color": "#555577"}, "hovertemplate": "%{x}<br>\ub9e4\uc218\uc6d0\uac00: %{y:,.0f}\ub9cc\uc6d0<extra></extra>"}, {"type": "bar", "name": "\ud3c9\uac00\uc561", "x": ["\uc11c\uc6b8\uc2dc \uc601\ub4f1\ud3ec\uad6c \uc2e0\uae38\ub3d9 364", "\uacbd\uae30\ub3c4 \uc548\uc591\uc2dc \ub9cc\uc548\uad6c \uc548\uc591\ub3d9 627-30", "\uacbd\uae30\ub3c4 \ud654\uc131\uc2dc \ubcd1\uc810\uad6c \ubcd1\uc810\ub3d9 892-3", "\uacbd\uae30\ub3c4 \ud3c9\ud0dd\uc2dc \uc138\uad50\ub3d9 559", "\ucda9\uccad\ub0a8\ub3c4 \ucc9c\uc548\uc2dc \ub3d9\ub0a8\uad6c \uc2e0\ubd80\ub3d9 541", "\uc5d4\ube44\ub514\uc544", "\ud14c\uc2ac\ub77c", "\uc778\ud154\ub9ac\uc548\ud14c\ud06c", "ACE \uad6c\uae00\ubc38\ub958\uccb4\uc778\uc561\ud2f0\ube0c", "\uc544\uc774\uc628\ud050", "\ud30c\ub450", "TIME Korea\ud50c\ub7ec\uc2a4\ubc30\ub2f9\uc561\ud2f0\ube0c", "\ud314\ub780\ud2f0\uc5b4", "RISE \uae00\ub85c\ubc8c\uc790\uc0b0\ubc30\ubd84\uc561\ud2f0\ube0c", "\ub204\ub9ac\ud50c\ub809\uc2a4", "\ud558\uc774\ub2c9\uc2a4", "\ub450\uc0b0\uc5d0\ub108\ube4c\ub9ac\ud2f0", "\ube44\ud2b8\ub9c8\uc778", "SOL \ubbf8\uad6dAI\uc804\ub825\uc778\ud504\ub77c", "\uc774\ub354\ub9ac\uc6c0", "\ube44\ud2b8\ucf54\uc778", "\uc2a4\ud53c\uc5b4", "IREN", "\uc0bc\uc131\uc804\uc790", "\ud604\ub300\ucc28", "SOL \ud314\ub780\ud2f0\uc5b4\ucee4\ubc84\ub4dc\ucf5cOTM\ucc44\uad8c\ud63c\ud569", "\uc5d0\uc2a4\ud53c\uc9c0", "\ub9ac\ucee4\uc83c", "\ud798\uc2a4\uc564\ub4dc\ud5c8\uc2a4\ud5ec\uc2a4\ucf00\uc5b4", "\uc544\uc774\ub80c", "\ud55c\uad6d\ud56d\uacf5\uc6b0\uc8fc", "\uc560\ub2c8\ud50c\ub7ec\uc2a4", "\ub85c\ucf13\ub7a9", "\ub808\ub4dc\uc640\uc774\uc5b4", "\uc544\ub9c8\uc874\ub2f7\ucef4", "\ub85c\ubcf4\ud2f0\uc988", "\ucf54\uc5b4\uc704\ube0c", "ACE \ubbf8\uad6d\ube45\ud14c\ud06cTOP7 Plus", "RISE \ud314\ub780\ud2f0\uc5b4\uace0\uc815\ud14c\ud06c100", "\ud15c\ud37c\uc2a4AI", "KODEX \ubbf8\uad6d\ub098\uc2a4\ub2e5100", "1Q \ubbf8\uad6d\uc6b0\uc8fc\ud56d\uacf5\ud14c\ud06c", "\uc870\ube44\uc5d0\ube44\uc5d0\uc774\uc158", "\ub9ac\ucee4\uc804", "\uc9c0\uc5d4\uc528\uc5d0\ub108\uc9c0", "\uc194\ub77c\ub098", "KODEX \ubbf8\uad6dS&P500\ud5ec\uc2a4\ucf00\uc5b4", "\ud55c\ud654\uc194\ub8e8\uc158", "\uc778\ud50c\ub809\uc158", "\ubd88\ub9ac\uc26c", "NAVER", "\uc5e1\uc140\ub808\ub77c", "\ud2b8\uc6ec\ud2f0\uc6d0\uce90\ud53c\ud0c8", "\ubbf8\ub798\uc5d0\uc14b\ubca4\ucc98\ud22c\uc790", "KODEX 2\ucc28\uc804\uc9c0"], "y": [113100, 75000, 55000, 17700, 14940, 12489, 8223, 3240, 1676, 1401, 1201, 1030, 1024, 946, 946, 910, 875, 866, 859, 827, 735, 630, 555, 541, 490, 489, 456, 452, 435, 425, 403, 375, 374, 360, 356, 328, 321, 305, 300, 291, 291, 286, 227, 219, 205, 155, 132, 122, 119, 107, 102, 86, 82, 55, 29], "marker": {"color": "#4C9BE8"}, "hovertemplate": "%{x}<br>\ud3c9\uac00\uc561: %{y:,.0f}\ub9cc\uc6d0<extra></extra>"}], "layout": {"barmode": "group", "margin": {"t": 10, "b": 80, "l": 60, "r": 20}, "xaxis": {"tickangle": -35, "automargin": true}, "yaxis": {"title": "\ub9cc\uc6d0"}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}, "legend": {"orientation": "h", "y": -0.35}}}.layout, cfg);
-Plotly.newPlot('hist', {"data": [{"type": "scatter", "mode": "lines+markers", "name": "\uc5f0\uae08", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [54.0, 52.0, 53.0, 53.0, 53.0, 52.0, 52.0, 52.0, 51.0, 50.0, 52.0, 54.0, 57.0, 59.0, 58.0, 62.0, 63.0], "line": {"color": "#81B29A", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\uc5f0\uae08</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\uc554\ud638\ud654\ud3d0", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 15.0, 15.0, 16.0, 15.0, 16.0, 17.0, 18.0, 17.0, 17.0, 18.0, 17.0], "line": {"color": "#A8DADC", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\uc554\ud638\ud654\ud3d0</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\ubd80\ub3d9\uc0b0", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [2697.0, 2697.0, 2730.0, 2754.0, 2754.0, 2752.0, 2752.0, 2752.0, 2752.0, 2752.0, 2759.0, 2770.0, 2772.0, 2766.0, 2766.0, 2766.0, 2757.0], "line": {"color": "#E76F51", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\ubd80\ub3d9\uc0b0</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\ubbf8\uad6d\uc8fc\uc2dd", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [363.0, 363.0, 376.0, 369.0, 373.0, 357.0, 346.0, 345.0, 346.0, 336.0, 362.0, 336.0, 379.0, 377.0, 372.0, 378.0, 284.0], "line": {"color": "#F4A261", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\ubbf8\uad6d\uc8fc\uc2dd</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\ud55c\uad6d\uc8fc\uc2dd", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [89.0, 86.0, 85.0, 88.0, 88.0, 86.0, 87.0, 87.0, 86.0, 82.0, 83.0, 85.0, 98.0, 99.0, 101.0, 114.0, 109.0], "line": {"color": "#4C9BE8", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\ud55c\uad6d\uc8fc\uc2dd</extra>"}], "layout": {"margin": {"t": 10, "b": 40, "l": 70, "r": 20}, "xaxis": {"title": ""}, "yaxis": {"title": "\ubc31\ub9cc\uc6d0"}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}, "legend": {"orientation": "h", "y": -0.25}}}.data, {"data": [{"type": "scatter", "mode": "lines+markers", "name": "\uc5f0\uae08", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [54.0, 52.0, 53.0, 53.0, 53.0, 52.0, 52.0, 52.0, 51.0, 50.0, 52.0, 54.0, 57.0, 59.0, 58.0, 62.0, 63.0], "line": {"color": "#81B29A", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\uc5f0\uae08</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\uc554\ud638\ud654\ud3d0", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 15.0, 15.0, 16.0, 15.0, 16.0, 17.0, 18.0, 17.0, 17.0, 18.0, 17.0], "line": {"color": "#A8DADC", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\uc554\ud638\ud654\ud3d0</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\ubd80\ub3d9\uc0b0", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [2697.0, 2697.0, 2730.0, 2754.0, 2754.0, 2752.0, 2752.0, 2752.0, 2752.0, 2752.0, 2759.0, 2770.0, 2772.0, 2766.0, 2766.0, 2766.0, 2757.0], "line": {"color": "#E76F51", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\ubd80\ub3d9\uc0b0</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\ubbf8\uad6d\uc8fc\uc2dd", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [363.0, 363.0, 376.0, 369.0, 373.0, 357.0, 346.0, 345.0, 346.0, 336.0, 362.0, 336.0, 379.0, 377.0, 372.0, 378.0, 284.0], "line": {"color": "#F4A261", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\ubbf8\uad6d\uc8fc\uc2dd</extra>"}, {"type": "scatter", "mode": "lines+markers", "name": "\ud55c\uad6d\uc8fc\uc2dd", "x": ["2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-04", "2026-04-11", "2026-04-18", "2026-04-25", "2026-05-02", "2026-05-09", "2026-05-16"], "y": [89.0, 86.0, 85.0, 88.0, 88.0, 86.0, 87.0, 87.0, 86.0, 82.0, 83.0, 85.0, 98.0, 99.0, 101.0, 114.0, 109.0], "line": {"color": "#4C9BE8", "width": 2}, "hovertemplate": "%{x}<br>%{y:,.0f}\ubc31\ub9cc\uc6d0<extra>\ud55c\uad6d\uc8fc\uc2dd</extra>"}], "layout": {"margin": {"t": 10, "b": 40, "l": 70, "r": 20}, "xaxis": {"title": ""}, "yaxis": {"title": "\ubc31\ub9cc\uc6d0"}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}, "legend": {"orientation": "h", "y": -0.25}}}.layout, cfg);
+
+// ── 히스토리 원본 데이터 ────────────────────────────────
+const DATES = ["2026-03-22","2026-03-23","2026-03-24","2026-03-25","2026-03-26","2026-03-27","2026-03-28","2026-03-29","2026-03-30","2026-03-31","2026-04-04","2026-04-11","2026-04-18","2026-04-25","2026-05-02","2026-05-09","2026-05-16"];
+
+const RAW = {
+  "연금":     [54,52,53,53,53,52,52,52,51,50,52,54,57,59,58,62,63],
+  "암호화폐": [16,16,16,16,16,16,15,15,16,15,16,17,18,17,17,18,17],
+  "부동산":   [2697,2697,2730,2754,2754,2752,2752,2752,2752,2752,2759,2770,2772,2766,2766,2766,2757],
+  "미국주식": [363,363,376,369,373,357,346,345,346,336,362,336,379,377,372,378,284],
+  "한국주식": [89,86,85,88,88,86,87,87,86,82,83,85,98,99,101,114,109]
+};
+
+const CAT_COLOR = {
+  "연금":     "#81B29A",
+  "암호화폐": "#A8DADC",
+  "부동산":   "#E76F51",
+  "미국주식": "#F4A261",
+  "한국주식": "#4C9BE8"
+};
+
+// WoW 계산
+function computeWow(vals) {
+  return vals.slice(1).map((v, i) => {
+    const prev = vals[i];
+    return prev ? +((v - prev) / prev * 100).toFixed(2) : 0;
+  });
+}
+
+// 정규화 (첫 값 = 100)
+function normalize(vals) {
+  const base = vals[0];
+  return vals.map(v => base ? +(v / base * 100).toFixed(2) : 0);
+}
+
+// ── ④ WoW 변동률 차트 ───────────────────────────────────
+const wowDates = DATES.slice(1);
+const wowTraces = [];
+const catOrder = ["미국주식","한국주식","암호화폐","연금","부동산"];
+catOrder.forEach(cat => {
+  const wows = computeWow(RAW[cat]);
+  const barColors = wows.map(v => v >= 0 ? "#2ECC71" : "#E74C3C");
+  wowTraces.push({
+    type: "bar", name: cat,
+    x: wowDates, y: wows,
+    marker: { color: barColors, opacity: 0.85 },
+    hovertemplate: "%{x}<br>" + cat + " WoW: %{y:.2f}%<extra></extra>",
+    visible: ["미국주식","한국주식","암호화폐"].includes(cat) ? true : "legendonly"
+  });
+});
+
+Plotly.newPlot("wow", wowTraces, {
+  barmode: "group",
+  margin: { t: 10, b: 50, l: 60, r: 20 },
+  xaxis: { title: "", tickangle: -30 },
+  yaxis: { title: "변동률 (%)", zeroline: true, zerolinecolor: "#555", zerolinewidth: 2 },
+  paper_bgcolor: "#1a1a2e", plot_bgcolor: "#16213e",
+  font: { color: "#e0e0e0" },
+  legend: { orientation: "h", y: -0.3 },
+  shapes: [{ type: "line", x0: 0, x1: 1, xref: "paper", y0: 0, y1: 0,
+             line: { color: "#888", width: 1, dash: "dot" } }]
+}, cfg);
+
+// ── ⑤ 정규화 추이 ────────────────────────────────────────
+const normTraces = catOrder.map(cat => ({
+  type: "scatter", mode: "lines+markers", name: cat,
+  x: DATES, y: normalize(RAW[cat]),
+  line: { color: CAT_COLOR[cat], width: 2 },
+  hovertemplate: "%{x}<br>" + cat + ": %{y:.1f}<extra></extra>"
+}));
+
+Plotly.newPlot("norm", normTraces, {
+  margin: { t: 10, b: 50, l: 60, r: 20 },
+  xaxis: { title: "" },
+  yaxis: { title: "기준 = 100", zeroline: false },
+  paper_bgcolor: "#1a1a2e", plot_bgcolor: "#16213e",
+  font: { color: "#e0e0e0" },
+  legend: { orientation: "h", y: -0.25 },
+  shapes: [{ type: "line", x0: 0, x1: 1, xref: "paper", y0: 100, y1: 100,
+             line: { color: "#666", width: 1, dash: "dot" } }]
+}, cfg);
+
+// ── ⑥ 절대 추이 ──────────────────────────────────────────
+const histTraces = catOrder.map(cat => ({
+  type: "scatter", mode: "lines+markers", name: cat,
+  x: DATES, y: RAW[cat],
+  line: { color: CAT_COLOR[cat], width: 2 },
+  hovertemplate: "%{x}<br>%{y:,.0f}백만원<extra>" + cat + "</extra>"
+}));
+
+Plotly.newPlot("hist", histTraces, {
+  margin: { t: 10, b: 40, l: 70, r: 20 },
+  xaxis: { title: "" }, yaxis: { title: "백만원" },
+  paper_bgcolor: "#1a1a2e", plot_bgcolor: "#16213e",
+  font: { color: "#e0e0e0" },
+  legend: { orientation: "h", y: -0.25 }
+}, cfg);
+
+// ── ⑦ 종목별 수익률 ──────────────────────────────────────
+Plotly.newPlot('rate', {"data": [{"type": "bar", "x": [-94.76, -52.57, -48.49, -41.63, -36.6, -36.32, -35.68, -34.77, -30.4, -30.14, -28.63, -26.31, -26.07, -23.64, -17.0, -15.73, -14.55, -5.4, -5.3, 0.0, 0.0, 1.21, 3.29, 7.32, 7.41, 11.28, 19.91, 22.91, 23.97, 26.41, 27.94, 28.44, 29.85, 33.82, 39.79, 39.96, 41.31, 42.01, 45.37, 54.04, 62.87, 67.27, 67.78, 73.41, 84.94, 98.79, 115.78, 117.75, 142.92, 156.35, 161.81, 216.76, 352.72, 353.33, 1408.0], "y": ["비트코인", "불리쉬", "애니플러스", "리커전", "힘스앤드허스헬스케어", "템퍼스AI", "인플렉션", "비트마인", "리커젼", "조비에비에이션", "경기도 평택시 세교동 559", "엡셀레라", "트웬티원캐피탈", "NAVER", "충청남도 천안시 동남구 신부동 541", "SOL 팔란티어커버드콜OTM채권혼합", "지엔씨에너지", "KODEX 미국S&P500헬스케어", "스피어", "경기도 안양시 만안구 안양동 627-30", "경기도 화성시 병점구 병점동 892-3", "RISE 글로벌자산배분액티브", "1Q 미국우주항공테크", "KODEX 2차전지", "RISE 팔란티어고정테크100", "ACE 미국빅테크TOP7 Plus", "IREN", "SOL 미국AI전력인프라", "TIME Korea플러스배당액티브", "한화솔루션", "아이렌", "아마존닷컴", "에스피지", "두산에너빌리티", "로보티즈", "팔란티어", "레드와이어", "코어위브", "로켓랩", "KODEX 미국나스닥100", "이더리움", "엔비디아", "ACE 구글밸류체인액티브", "한국항공우주", "파두", "누리플렉스", "하이닉스", "테슬라", "미래에셋벤처투자", "아이온큐", "인텔리안테크", "현대차", "삼성전자", "솔라나", "서울시 영등포구 신길동 364"], "orientation": "h", "marker": {"color": ["#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#E74C3C","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71","#2ECC71"]}, "text": ["-94.76%","-52.57%","-48.49%","-41.63%","-36.60%","-36.32%","-35.68%","-34.77%","-30.40%","-30.14%","-28.63%","-26.31%","-26.07%","-23.64%","-17.00%","-15.73%","-14.55%","-5.40%","-5.30%","0.00%","0.00%","+1.21%","+3.29%","+7.32%","+7.41%","+11.28%","+19.91%","+22.91%","+23.97%","+26.41%","+27.94%","+28.44%","+29.85%","+33.82%","+39.79%","+39.96%","+41.31%","+42.01%","+45.37%","+54.04%","+62.87%","+67.27%","+67.78%","+73.41%","+84.94%","+98.79%","+115.78%","+117.75%","+142.92%","+156.35%","+161.81%","+216.76%","+352.72%","+353.33%","+1408.00%"], "textposition": "outside", "hovertemplate": "%{y}<br>%{x:.2f}%<extra></extra>"}]}.data, {"layout": {"margin": {"t": 10, "b": 30, "l": 120, "r": 80}, "xaxis": {"title": "", "zeroline": true, "zerolinecolor": "#555"}, "yaxis": {"automargin": true}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}}}.layout, cfg);
+
+// ── ⑧ 평가액 vs 매수원가 ─────────────────────────────────
+Plotly.newPlot('eval', {"data": [{"type": "bar", "name": "매수원가", "x": ["서울시 영등포구 신길동 364", "경기도 안양시 만안구 안양동 627-30", "경기도 화성시 병점구 병점동 892-3", "경기도 평택시 세교동 559", "충청남도 천안시 동남구 신부동 541", "엔비디아", "테슬라", "인텔리안테크", "ACE 구글밸류체인액티브", "아이온큐", "파두", "TIME Korea플러스배당액티브", "팔란티어", "RISE 글로벌자산배분액티브", "누리플렉스", "하이닉스", "두산에너빌리티", "비트마인", "SOL 미국AI전력인프라", "이더리움", "비트코인", "스피어", "IREN", "삼성전자", "현대차", "SOL 팔란티어커버드콜OTM채권혼합", "에스피지", "리커젼", "힘스앤드허스헬스케어", "아이렌", "한국항공우주", "애니플러스", "로켓랩", "레드와이어", "아마존닷컴", "로보티즈", "코어위브", "ACE 미국빅테크TOP7 Plus", "RISE 팔란티어고정테크100", "템퍼스AI", "KODEX 미국나스닥100", "1Q 미국우주항공테크", "조비에비에이션", "리커전", "지엔씨에너지", "솔라나", "KODEX 미국S&P500헬스케어", "한화솔루션", "인플렉션", "불리쉬", "NAVER", "엡셀레라", "트웬티원캐피탈", "미래에셋벤처투자", "KODEX 2차전지"], "y": [7500,75000,55000,24800,18000,7467,3776,1238,999,546,650,831,731,935,476,422,654,1328,699,508,14044,665,463,120,155,580,351,650,687,332,232,729,257,255,277,235,226,274,280,458,189,277,324,376,240,34,140,96,185,225,133,116,111,23,27], "marker": {"color": "#555577"}, "hovertemplate": "%{x}<br>매수원가: %{y:,.0f}만원<extra></extra>"}, {"type": "bar", "name": "평가액", "x": ["서울시 영등포구 신길동 364", "경기도 안양시 만안구 안양동 627-30", "경기도 화성시 병점구 병점동 892-3", "경기도 평택시 세교동 559", "충청남도 천안시 동남구 신부동 541", "엔비디아", "테슬라", "인텔리안테크", "ACE 구글밸류체인액티브", "아이온큐", "파두", "TIME Korea플러스배당액티브", "팔란티어", "RISE 글로벌자산배분액티브", "누리플렉스", "하이닉스", "두산에너빌리티", "비트마인", "SOL 미국AI전력인프라", "이더리움", "비트코인", "스피어", "IREN", "삼성전자", "현대차", "SOL 팔란티어커버드콜OTM채권혼합", "에스피지", "리커젼", "힘스앤드허스헬스케어", "아이렌", "한국항공우주", "애니플러스", "로켓랩", "레드와이어", "아마존닷컴", "로보티즈", "코어위브", "ACE 미국빅테크TOP7 Plus", "RISE 팔란티어고정테크100", "템퍼스AI", "KODEX 미국나스닥100", "1Q 미국우주항공테크", "조비에비에이션", "리커전", "지엔씨에너지", "솔라나", "KODEX 미국S&P500헬스케어", "한화솔루션", "인플렉션", "불리쉬", "NAVER", "엡셀레라", "트웬티원캐피탈", "미래에셋벤처투자", "KODEX 2차전지"], "y": [113100,75000,55000,17700,14940,12489,8223,3240,1676,1401,1201,1030,1024,946,946,910,875,866,859,827,735,630,555,541,490,489,456,452,435,425,403,375,374,360,356,328,321,305,300,291,291,286,227,219,205,155,132,122,119,107,102,86,82,55,29], "marker": {"color": "#4C9BE8"}, "hovertemplate": "%{x}<br>평가액: %{y:,.0f}만원<extra></extra>"}]}.data, {"layout": {"barmode": "group", "margin": {"t": 10, "b": 80, "l": 60, "r": 20}, "xaxis": {"tickangle": -35, "automargin": true}, "yaxis": {"title": "만원"}, "paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e", "font": {"color": "#e0e0e0"}, "legend": {"orientation": "h", "y": -0.35}}}.layout, cfg);
 </script>
 </body>
 </html>
