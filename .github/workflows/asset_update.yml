@@ -32,6 +32,8 @@ jobs:
 
       # ── 2. 주식 (연금 포함) ──────────────────────────────
       - name: 2. 주식 조회 (연금 포함)
+        # 개별 실패로 파이프라인을 멈추지 않는다. 빨간불은 7단계가 만든다.
+        continue-on-error: true
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
@@ -40,6 +42,8 @@ jobs:
 
       # ── 3. 부동산 ────────────────────────────────────────
       - name: 3. 부동산 조회
+        # 개별 실패로 파이프라인을 멈추지 않는다. 빨간불은 7단계가 만든다.
+        continue-on-error: true
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
@@ -50,6 +54,8 @@ jobs:
 
       # ── 4. 암호화폐 ──────────────────────────────────────
       - name: 4. 암호화폐 조회
+        # 개별 실패로 파이프라인을 멈추지 않는다. 빨간불은 7단계가 만든다.
+        continue-on-error: true
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
@@ -79,3 +85,22 @@ jobs:
           git add docs/index.html
           git diff --cached --quiet || git commit -m "📊 대시보드 업데이트 $(date +'%Y-%m-%d')"
           git push origin main
+
+      # ── 7. 정합성 점검 ───────────────────────────────────
+      #
+      # 적재와 발행이 전부 끝난 뒤에 돈다.
+      # 여기서 실패해도 데이터와 대시보드는 이미 반영돼 있고,
+      # 목적은 차단이 아니라 '빨간 실행'을 만들어 알림이 가게 하는 것이다.
+      # 2026-05~09 20주 동안 매주 success로 끝나는 바람에
+      # 자산의 1/4이 덮어써지는 걸 아무도 못 봤다. 그 재발을 막는 단계다.
+      - name: 7. 정합성 점검
+        if: always()
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DB_ASSET_HOLDINGS: ${{ secrets.DB_ASSET_HOLDINGS }}
+          DB_EVAL_RESULT: ${{ secrets.DB_EVAL_RESULT }}
+          # 주간 총평가액 변동 허용 폭(%). 넘으면 실패시킨다.
+          TOTAL_SWING_PCT: "15"
+          # 부동산이 몇 주 연속 매수가 폴백이면 실패시킬지
+          STALE_ALERT_WEEKS: "3"
+        run: python reconcile.py
