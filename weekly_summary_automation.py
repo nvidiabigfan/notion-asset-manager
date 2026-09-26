@@ -29,6 +29,7 @@ Phase 4 - 자산평가결과 → 분류별 집계 → 주간자산요약 DB 저�
 """
 
 import os
+import time
 import requests
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
@@ -54,6 +55,28 @@ SORT_ORDER = {
     "연금":     6,
     "전체":     7,
 }
+
+
+# ── Notion POST (429 존중) ────────────────────────────────
+# 평가결과 DB는 매주 행이 늘어 페이지네이션 호출 수도 함께 는다.
+# 재시도가 없으면 rate limit에 걸린 순간 일부만 집계된 요약이 저장된다.
+def notion_post(url: str, payload: dict) -> dict:
+    for attempt in range(1, 4):
+        res = requests.post(url, headers=HEADERS, json=payload, timeout=30)
+        if res.status_code == 429:
+            wait = float(res.headers.get("Retry-After", 5))
+            print(f"  [RATE LIMIT] {wait}초 대기 후 재시도 ({attempt}/3)")
+            time.sleep(wait)
+            continue
+        if res.status_code >= 500:
+            wait = 2 ** attempt
+            print(f"  [{res.status_code}] {wait}초 대기 후 재시도 ({attempt}/3)")
+            time.sleep(wait)
+            continue
+        res.raise_for_status()
+        time.sleep(0.4)
+        return res.json() if res.content else {}
+    raise RuntimeError(f"3회 재시도 후에도 실패: {url}")
 
 
 def get_run_date() -> str:
@@ -83,9 +106,7 @@ def fetch_eval_results(run_date: str) -> list[dict]:
         if start_cursor:
             payload["start_cursor"] = start_cursor
 
-        res = requests.post(url, headers=HEADERS, json=payload)
-        res.raise_for_status()
-        data = res.json()
+        data = notion_post(url, payload)
 
         for page in data.get("results", []):
             props = page["properties"]
@@ -148,9 +169,7 @@ def fetch_prev_summary(run_date: str) -> dict[str, float]:
         "page_size": 100,
     }
 
-    res = requests.post(url, headers=HEADERS, json=payload)
-    res.raise_for_status()
-    data = res.json()
+    data = notion_post(url, payload)
 
     results = data.get("results", [])
     if not results:
@@ -266,8 +285,7 @@ def save_summary(category: str, data: dict, ratio: float,
         "parent":     {"database_id": DB_WEEKLY_SUMMARY},
         "properties": properties,
     }
-    res = requests.post(url, headers=HEADERS, json=payload)
-    res.raise_for_status()
+    notion_post(url, payload)
 
     change_str = (
         f"  변동: {change_amount:+,.0f}원 ({change_rate:+.2f}%)"

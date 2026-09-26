@@ -20,6 +20,8 @@ import time
 import requests
 from datetime import datetime, timezone, timedelta
 
+import eval_result
+
 # ── 환경변수 ──────────────────────────────────────────────
 NOTION_TOKEN      = os.environ["NOTION_TOKEN"]
 DB_ASSET_HOLDINGS = os.environ["DB_ASSET_HOLDINGS"]
@@ -54,6 +56,10 @@ def fetch_crypto_holdings() -> list[dict]:
     for page in res.json().get("results", []):
         props = page["properties"]
 
+        # 보유자 (rich_text) — 없으면 빈 문자열
+        owner_arr = props.get("보유자", {}).get("rich_text", [])
+        owner = owner_arr[0]["plain_text"].strip() if owner_arr else ""
+
         # 자산명 (Title)
         name_arr = props.get("자산명", {}).get("title", [])
         name = name_arr[0]["plain_text"].strip() if name_arr else ""
@@ -70,10 +76,12 @@ def fetch_crypto_holdings() -> list[dict]:
 
         if symbol and quantity > 0:
             holdings.append({
+                "id":       page["id"],
                 "name":     name,
                 "symbol":   symbol,
                 "quantity": quantity,
                 "amount":   amount,
+                "owner":    owner,
             })
 
     print(f"[Holdings] 암호화폐 보유 {len(holdings)}건 조회")
@@ -107,115 +115,14 @@ def fetch_upbit_prices(symbols: list[str]) -> dict[str, float]:
     return {}
 
 
-# ── 3. 직전 평가액 조회 ───────────────────────────────────
-def fetch_prev_eval(asset_name: str, run_date: str) -> float | None:
-    """
-    자산평가결과 DB 구조:
-      - Title = 평가일자 (날짜 문자열이 페이지 제목)
-      - 자산명 = rich_text
-      - 자산분류 = select
-
-    필터: 자산분류=암호화폐 + 평가일자(date)<run_date
-    자산명 매칭은 Python에서 처리
-    전체 try/except 로 감싸 절대 중단되지 않도록
-    """
-    try:
-        url = f"https://api.notion.com/v1/databases/{DB_EVAL_RESULT}/query"
-        payload = {
-            "filter": {
-                "and": [
-                    {"property": "자산분류", "select": {"equals": "암호화폐"}},
-                    {"property": "평가일자", "date":   {"before": run_date}},
-                ]
-            },
-            "sorts": [{"property": "평가일자", "direction": "descending"}],
-            "page_size": 100,
-        }
-        res = requests.post(url, headers=HEADERS, json=payload)
-        res.raise_for_status()
-
-        for page in res.json().get("results", []):
-            props = page["properties"]
-            # 자산명은 rich_text 타입
-            name_arr = props.get("자산명", {}).get("rich_text", [])
-            stored_name = name_arr[0]["plain_text"].strip() if name_arr else ""
-            if stored_name == asset_name:
-                val = props.get("평가액", {}).get("number")
-                return float(val) if val is not None else None
-
-        return None
-
-    except Exception as e:
-        print(f"[PrevEval] ⚠️  {asset_name} 직전평가액 조회 실패 (무시): {e}")
-        return None
-
-
-# ── 4. 자산평가결과 DB에 저장 ─────────────────────────────
-def save_eval_result(holding: dict, price: float | None, run_date: str) -> None:
-    """
-    자산평가결과 DB 저장 - 실제 DB 스키마 기준
-
-    Title(평가일자): 날짜 문자열 → 페이지 제목으로 저장
-    자산명: rich_text
-    자산분류: select
-    수량: number
-    금액: number  (매입가)
-    현재가: number
-    평가액: number
-    직전평가액: number
-    """
-    symbol   = holding["symbol"]
-    quantity = holding["quantity"]
-    name     = holding["name"]
-    amount   = holding["amount"]
-
-    eval_amount = round(price * quantity) if price is not None else None
-    prev_amount = fetch_prev_eval(name, run_date)
-
-    # Title = 평가일자 (페이지 제목)
-    properties = {
-        "평가일자": {
-            "title": [{"text": {"content": run_date}}]
-        },
-        "자산명": {
-            "rich_text": [{"text": {"content": name}}]
-        },
-        "자산분류": {
-            "select": {"name": "암호화폐"}
-        },
-        "수량": {
-            "number": quantity
-        },
-        "금액": {
-            "number": amount
-        },
-    }
-
-    if price is not None:
-        properties["현재가"] = {"number": price}
-
-    if eval_amount is not None:
-        properties["평가액"] = {"number": eval_amount}
-
-    if prev_amount is not None:
-        properties["직전평가액"] = {"number": prev_amount}
-
-    url = "https://api.notion.com/v1/pages"
-    payload = {
-        "parent": {"database_id": DB_EVAL_RESULT},
-        "properties": properties,
-    }
-    res = requests.post(url, headers=HEADERS, json=payload)
-    res.raise_for_status()
-
-    change_str = ""
-    if eval_amount is not None and prev_amount is not None:
-        diff = eval_amount - prev_amount
-        change_str = f"  변동: {diff:+,.0f}원"
-
-    price_str  = f"{price:,.0f}원" if price is not None else "조회실패"
-    amount_str = f"{eval_amount:,.0f}원" if eval_amount is not None else "-"
-    print(f"[Notion] {name}({symbol}) 저장 완료 | 현재가: {price_str} | 평가액: {amount_str}{change_str}")
+# ── 3. 자산평가결과 DB에 저장 ─────────────────────────────
+#
+# 이전 구현은 두 가지가 틀려 있었다.
+#   (1) 직전평가액 조회에서 title 타입인 '평가일자'에 date 필터를 걸어
+#       매주 400 Bad Request가 났고, 전부 except로 삼켜져 암호화폐
+#       직전평가액은 한 번도 채워진 적이 없다.
+#   (2) upsert 없이 항상 POST여서 재실행하면 같은 날짜 행이 중복 생성됐다.
+# 두 가지 모두 eval_result 모듈의 공통 경로로 대체한다.
 
 
 # ── MAIN ──────────────────────────────────────────────────
@@ -225,6 +132,9 @@ def main():
     print(f"[Crypto] 실행일(KST): {run_date}")
     print(f"{'='*50}")
 
+    tracker   = eval_result.ErrorTracker("암호화폐")
+    available = eval_result.require_schema()
+
     holdings = fetch_crypto_holdings()
     if not holdings:
         print("[Crypto] 보유 암호화폐 없음 - 종료")
@@ -233,11 +143,47 @@ def main():
     symbols = list({h["symbol"] for h in holdings})
     prices  = fetch_upbit_prices(symbols)
 
+    saved = 0
     for h in holdings:
+        label = f"{h['owner'] or '미분류'}/{h['name']}"
         price = prices.get(h["symbol"])
-        save_eval_result(h, price, run_date)
 
-    print(f"\n[Crypto] 완료 - {len(holdings)}건 처리")
+        if price is None:
+            tracker.record(f"{label} 업비트 시세", f"{h['symbol']} 가격 조회 실패")
+            continue
+
+        quantity    = h["quantity"]
+        eval_amount = price * quantity
+
+        try:
+            prev_amount = eval_result.fetch_prev_eval(h["id"], run_date)
+            action = eval_result.upsert(
+                holding_id=h["id"],
+                owner=h["owner"],
+                asset_name=h["name"],
+                category="암호화폐",
+                run_date=run_date,
+                quantity=quantity,
+                unit_price=price,
+                eval_amount=eval_amount,
+                purchase_amount=h["amount"],
+                prev_eval_amount=prev_amount,
+                ticker=h["symbol"],
+                available=available,
+            )
+        except Exception as e:
+            tracker.record(f"{label} 노션 저장", e)
+            continue
+
+        change_str = ""
+        if prev_amount is not None:
+            change_str = f"  변동: {eval_amount - prev_amount:+,.0f}원"
+        print(f"[Notion] [{action}] {label}({h['symbol']}) | "
+              f"현재가: {price:,.0f}원 | 평가액: {eval_amount:,.0f}원{change_str}")
+        saved += 1
+
+    print(f"\n[Crypto] 완료 - {saved}/{len(holdings)}건 저장")
+    tracker.exit_if_any()
 
 
 if __name__ == "__main__":
