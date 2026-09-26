@@ -107,6 +107,8 @@ def get_prop(page: dict, name: str):
     if ptype == "date":
         d = prop.get("date")
         return d["start"] if d else ""
+    if ptype == "checkbox":
+        return prop.get("checkbox", False)
     return None
 
 
@@ -136,6 +138,7 @@ def fetch_latest_holdings(eval_date: str) -> list[dict]:
         current_price = get_prop(row, "현재가")
         quantity    = get_prop(row, "수량")
         owner       = get_prop(row, "보유자")
+        stale       = get_prop(row, "시가미반영")
 
         if not name or eval_amount is None:
             continue
@@ -148,6 +151,7 @@ def fetch_latest_holdings(eval_date: str) -> list[dict]:
             "current_price": float(current_price) if current_price is not None else None,
             "quantity":      float(quantity) if quantity is not None else None,
             "owner":         owner or "미분류",
+            "stale":         bool(stale),
         })
     return holdings
 
@@ -186,7 +190,14 @@ def build_html(eval_date: str, holdings: list[dict], history: list[dict]) -> str
     total_eval = sum(h["eval_amount"] for h in holdings)
     total_buy  = sum(h["buy_amount"]  for h in holdings if h["buy_amount"] is not None)
     total_pnl  = total_eval - total_buy if total_buy else None
-    total_rate = (total_pnl / total_buy * 100) if total_buy else None
+
+    # 실거래가를 못 구해 매수가로 채운 자산은 정의상 손익이 0이다.
+    # 분모에 넣으면 전체 수익률이 그만큼 희석되므로 제외하고 계산한다.
+    priced      = [h for h in holdings if not h["stale"]]
+    stale_eval  = sum(h["eval_amount"] for h in holdings if h["stale"])
+    priced_eval = sum(h["eval_amount"] for h in priced)
+    priced_buy  = sum(h["buy_amount"]  for h in priced if h["buy_amount"] is not None)
+    total_rate  = ((priced_eval - priced_buy) / priced_buy * 100) if priced_buy else None
 
     cat_totals = defaultdict(float)
     for h in holdings:
@@ -268,6 +279,8 @@ def build_html(eval_date: str, holdings: list[dict], history: list[dict]) -> str
     rate_color   = "#2ECC71" if total_rate and total_rate >= 0 else "#E74C3C"
     weekly_color = "#2ECC71" if weekly_change and weekly_change >= 0 else "#E74C3C"
     now_str      = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
+    stale_note   = (f"시가미반영 {fmt_won(stale_eval)} 제외"
+                    if stale_eval else "&nbsp;")
 
     # ── 보유자 카드 HTML ───────────────────────────────────
     owner_cards_html = ""
@@ -507,7 +520,7 @@ def build_html(eval_date: str, holdings: list[dict], history: list[dict]) -> str
   <div class="card">
     <div class="card-label">전체 수익률</div>
     <div class="card-value" style="color:{rate_color}">{fmt_pct(total_rate, sign=True)}</div>
-    <div class="card-sub">&nbsp;</div>
+    <div class="card-sub">{stale_note}</div>
   </div>
   <div class="card">
     <div class="card-label">주간 변동율</div>

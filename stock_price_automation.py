@@ -31,6 +31,8 @@ import urllib.parse
 import urllib.error
 from datetime import datetime, timezone, timedelta
 
+import eval_result
+
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
@@ -38,7 +40,6 @@ NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 DB_ASSET_HOLDINGS  = "31a64e13bb46807b8673e94e7b416f34"  # 자산보유현황
 DB_EXCHANGE_RATE   = "31a64e13bb4680a491b8c1c2ca7770bc"  # 환율정보
 DB_REAL_ESTATE     = "31a64e13bb4680c18668eec357e11222"  # 부동산 실거래가
-DB_EVAL_RESULT     = "31a64e13bb46802c91e1f5502631a154"  # 자산평가 결과
 
 KST = timezone(timedelta(hours=9))
 
@@ -187,6 +188,11 @@ def get_latest_usd_krw() -> float:
 
 # ── 자산보유현황 DB 조회 ──────────────────────────────────────────────────────
 def get_holdings() -> list:
+    """
+    보유 '행' 하나가 곧 하나의 포지션이다.
+    같은 종목을 여러 계좌가 나눠 들고 있으므로(팔란티어 900주 / 73.368384주 /
+    51주 / 20주) 자산명이나 티커로는 구분되지 않는다. page id를 함께 들고 온다.
+    """
     rows     = query_db(DB_ASSET_HOLDINGS)
     holdings = []
     for row in rows:
@@ -199,6 +205,7 @@ def get_holdings() -> list:
         ticker         = get_prop(row, "티커/코드") or ""
         quantity       = get_prop(row, "수량") or 0
         unit_price_buy = get_prop(row, "금액")
+        owner          = get_prop(row, "보유자") or ""
 
         if not ticker.strip():
             print(f"  [SKIP] {name} — 티커/코드 미입력")
@@ -209,89 +216,15 @@ def get_holdings() -> list:
             ticker = ticker + ".KS"
 
         holdings.append({
+            "id":             row["id"],
             "name":           name,
             "ticker":         ticker.strip(),
             "quantity":       quantity,
             "category":       category,
             "unit_price_buy": unit_price_buy,
+            "owner":          owner,
         })
     return holdings
-
-
-# ── 직전평가액 조회 ───────────────────────────────────────────────────────────
-def get_prev_eval_amount(asset_name: str, run_date: str) -> float | None:
-    """
-    자산평가 결과 DB에서 해당 자산의 직전 레코드 평가액을 반환.
-    - 평가일자(Title)가 run_date(실행일) 미만인 레코드 중 가장 최근 것 사용
-    - 첫 등록 종목이면 None 반환
-    """
-    rows = query_db(
-        DB_EVAL_RESULT,
-        filter_body={
-            "property": "자산명", "rich_text": {"equals": asset_name}
-        },
-        sorts=[{"property": "평가일자", "direction": "descending"}],
-    )
-
-    for row in rows:
-        row_date = get_prop(row, "평가일자")   # Title 컬럼 (YYYY-MM-DD)
-        if row_date and row_date < run_date:
-            prev_amount = get_prop(row, "평가액")
-            if prev_amount is not None:
-                print(f"     직전평가액: {prev_amount:,.0f}원 ({row_date})")
-                return float(prev_amount)
-
-    print(f"     직전평가액: 없음 (첫 등록)")
-    return None
-
-
-# ── 자산평가 결과 DB 저장 ─────────────────────────────────────────────────────
-def upsert_eval_result(
-    asset_name:       str,
-    category:         str,
-    quantity:         float,
-    unit_price_krw:   float,
-    eval_amount_krw:  float,
-    purchase_amount:  float | None,
-    prev_eval_amount: float | None,
-    run_date:         str,
-) -> None:
-    """
-    자산평가 결과 DB에 실행일 기준 레코드 UPSERT
-    평가일자 = run_date (스크립트 실행 KST 날짜, 실제 거래일과 무관)
-    """
-    existing = query_db(
-        DB_EVAL_RESULT,
-        filter_body={
-            "and": [
-                {"property": "자산명",  "rich_text": {"equals": asset_name}},
-                {"property": "평가일자", "title":     {"equals": run_date}},
-            ]
-        },
-    )
-
-    props = {
-        "자산명":     {"rich_text": [{"text": {"content": asset_name}}]},
-        "자산분류":   {"select":    {"name": category}},
-        "수량":       {"number": quantity},
-        "금액":       {"number": purchase_amount},
-        "현재가":     {"number": round(unit_price_krw)},
-        "평가액":     {"number": round(eval_amount_krw)},
-        "직전평가액": {"number": round(prev_eval_amount) if prev_eval_amount is not None else None},
-    }
-
-    if existing:
-        page_id = existing[0]["id"]
-        notion_request("PATCH", f"/pages/{page_id}", {"properties": props})
-        print(f"  [업데이트] {asset_name}: {eval_amount_krw:,.0f}원")
-    else:
-        props["평가일자"] = {"title": [{"text": {"content": run_date}}]}
-        notion_request(
-            "POST",
-            "/pages",
-            {"parent": {"database_id": DB_EVAL_RESULT}, "properties": props},
-        )
-        print(f"  [신규생성] {asset_name}: {eval_amount_krw:,.0f}원")
 
 
 # ── 메인 ──────────────────────────────────────────────────────────────────────
@@ -300,6 +233,9 @@ def main():
     print(f"\n{'='*55}")
     print(f"  주식 시세 자동화 실행 — {run_date} (KST)")
     print(f"{'='*55}")
+
+    tracker   = eval_result.ErrorTracker("주식")
+    available = eval_result.require_schema()
 
     # 1) 환율 조회
     print("\n[1] 환율 조회")
@@ -312,7 +248,8 @@ def main():
         print("  보유 주식 없음. 종료.")
         return
     for h in holdings:
-        print(f"  - {h['category']} / {h['name']} / {h['quantity']}주")
+        owner_str = h["owner"] or "미분류"
+        print(f"  - {h['category']} / {owner_str} / {h['name']} / {h['quantity']}주")
 
     # 3) 주가 조회 및 평가 결과 저장
     print("\n[3] 주가 조회 및 노션 저장")
@@ -324,12 +261,15 @@ def main():
         qty            = holding["quantity"]
         category       = holding["category"]
         unit_price_buy = holding["unit_price_buy"]
+        owner          = holding["owner"]
+        label          = f"{owner or '미분류'}/{name}"
 
-        print(f"\n  >> {name} ({ticker})")
+        print(f"\n  >> {label} ({ticker})")
         try:
             stock = fetch_stock_price(ticker)
         except Exception as e:
-            print(f"  [ERROR] 주가 조회 실패: {e}")
+            # 건너뛰되 삼키지 않는다. main 끝에서 exit(1)로 이어진다.
+            tracker.record(f"{label} 주가 조회", e)
             continue
 
         price           = stock["price"]
@@ -353,21 +293,34 @@ def main():
         eval_amount = unit_price_krw * qty
         print(f"     평가금액: {eval_amount:,.0f}원 ({qty}주)")
 
-        prev_eval = get_prev_eval_amount(name, run_date)
+        try:
+            prev_eval = eval_result.fetch_prev_eval(holding["id"], run_date)
+            if prev_eval is not None:
+                print(f"     직전평가액: {prev_eval:,.0f}원")
+            else:
+                print("     직전평가액: 없음 (첫 등록)")
 
-        upsert_eval_result(
-            asset_name=name,
-            category=category,
-            quantity=qty,
-            unit_price_krw=unit_price_krw,
-            eval_amount_krw=eval_amount,
-            purchase_amount=round(buy_eval) if buy_eval is not None else None,
-            prev_eval_amount=prev_eval,
-            run_date=run_date,
-        )
+            action = eval_result.upsert(
+                holding_id=holding["id"],
+                owner=owner,
+                asset_name=name,
+                category=category,
+                run_date=run_date,
+                quantity=qty,
+                unit_price=unit_price_krw,
+                eval_amount=eval_amount,
+                purchase_amount=buy_eval,
+                prev_eval_amount=prev_eval,
+                ticker=ticker,
+                available=available,
+            )
+            print(f"  [{action}] {label}: {eval_amount:,.0f}원")
+        except Exception as e:
+            tracker.record(f"{label} 노션 저장", e)
+            continue
 
         summary.append({
-            "name":            name,
+            "name":            label,
             "eval_amount":     eval_amount,
             "category":        category,
             "last_trade_date": last_trade_date,
@@ -379,10 +332,12 @@ def main():
     print(f"{'='*55}")
     total = 0
     for s in summary:
-        print(f"  {s['name']:15s}  {s['eval_amount']:>15,.0f} 원  (거래일: {s['last_trade_date']})")
+        print(f"  {s['name']:24s}  {s['eval_amount']:>15,.0f} 원  (거래일: {s['last_trade_date']})")
         total += s["eval_amount"]
-    print(f"  {'합계':15s}  {total:>15,.0f} 원")
+    print(f"  {'합계':24s}  {total:>15,.0f} 원  ({len(summary)}건)")
     print(f"{'='*55}\n")
+
+    tracker.exit_if_any()
 
 
 if __name__ == "__main__":
